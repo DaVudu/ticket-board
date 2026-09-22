@@ -36,7 +36,7 @@ den Claude Code rotiert. Ein eigens erzeugter Token aus `claude setup-token` fun
 Zwei Eigenheiten des Endpunkts, die im Code berücksichtigt sind:
 
 - **Drosselung.** Schon eine zweite Abfrage wenige Sekunden nach der ersten bringt einen 429.
-  `usage.js` erlaubt deshalb höchstens einen Versuch pro Minute — auch nach einem Fehlschlag,
+  `usage.js` erlaubt deshalb höchstens einen Versuch alle zwei Minuten — auch nach einem Fehlschlag,
   denn sofortiges Nachfassen erzeugt nur einen 429, der den eigentlichen Fehler verdeckt.
   Scheitert ein Abruf, zeigt das Panel den letzten bekannten Wert mit dem Zeitpunkt, zu dem er
   galt, plus Warnhinweis.
