@@ -97,6 +97,8 @@ app.post('/api/tickets/:key/implement', async (req, res) => {
 await initRuns(path.join(root, 'data', 'runs.json'));
 await initUsage(path.join(root, 'data', 'usage-cache.json'));
 
-app.listen(port, () => {
+// Nur lokal: /api/tickets/:key/implement startet einen Claude-Prozess mit Shell-Zugriff und
+// hat keine Authentifizierung. Ohne Host-Angabe lauscht Express auf allen Schnittstellen.
+app.listen(port, '127.0.0.1', () => {
   console.log(`API auf http://localhost:${port}`);
 });

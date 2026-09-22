@@ -12,7 +12,9 @@ export default defineConfig(({ mode }) => {
       // API_PORT, sonst greifen beide Prozesse nach demselben Port.
       port: Number(process.env.PORT) || 5173,
       proxy: {
-        '/api': `http://localhost:${apiPort}`,
+        // 127.0.0.1 statt localhost: Der Proxy loest localhost zu ::1 auf, der API-Server
+        // lauscht aber nur auf IPv4 — sonst ECONNREFUSED ::1.
+        '/api': `http://127.0.0.1:${apiPort}`,
       },
     },
   };
