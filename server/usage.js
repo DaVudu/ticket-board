@@ -75,6 +75,17 @@ function shape(payload) {
   return { windows, breakdown: breakdown.length ? breakdown : null };
 }
 
+// `retry-after` wird nur angezeigt, nicht befolgt: Der Endpunkt nannte schon 51 Minuten und
+// antwortete nach 11 Minuten wieder.
+async function throttled(response) {
+  const header = response.headers.get('retry-after');
+  const body = (await response.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 200);
+
+  const parts = [`retry-after: ${header ?? 'keine Angabe'}`];
+  if (body) parts.push(`Antwort: ${body}`);
+  return `Abfrage gedrosselt (429) — ${parts.join(', ')}`;
+}
+
 // Ein alter Wert ist eine Auskunft, solange dabeisteht, wann er galt — aber keine Erlaubnis,
 // ihn fuer aktuell zu halten. Ohne Cache gibt es gar keine Auskunft.
 function degraded(message) {
@@ -116,7 +127,7 @@ export async function getUsage() {
     return degraded(`Endpunkt nicht erreichbar: ${reason}`);
   }
 
-  if (response.status === 429) return degraded('Abfrage gedrosselt (429)');
+  if (response.status === 429) return degraded(await throttled(response));
   // Den Token nicht selbst erneuern: Claude Code haelt ihn frisch, ein zweiter Erneuerer
   // stritte sich mit ihm um denselben Refresh-Token.
   if (response.status === 401) return degraded('Anmeldung abgelaufen (401) — der nächste Claude-Code-Start erneuert sie');
