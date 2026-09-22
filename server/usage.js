@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -7,7 +7,7 @@ const ENDPOINT = 'https://api.anthropic.com/api/oauth/usage';
 // Der Endpunkt drosselt schon wenige Sekunden nach einer Abfrage. Die Sperrzeit gilt fuer
 // JEDEN Versuch, auch fuer fehlgeschlagene: sofort nachzufassen erzeugt nur einen 429 und
 // verdeckt den eigentlichen Fehler.
-const MIN_INTERVAL_MS = 60_000;
+const MIN_INTERVAL_MS = 120_000;
 
 const LABELS = {
   session: '5-Stunden-Limit',
@@ -19,6 +19,30 @@ const LABELS = {
 let cache = null;
 let lastAttemptAt = 0;
 let lastError = null;
+let cacheFile = null;
+
+// Ohne diesen Speicher fragt jeder Serverneustart sofort neu an — bei mehreren Neustarts
+// kurz hintereinander laeuft das zuverlaessig in die Drosselung.
+export async function initUsage(file) {
+  cacheFile = file;
+  await mkdir(path.dirname(file), { recursive: true });
+  try {
+    const stored = JSON.parse(await readFile(file, 'utf8'));
+    lastAttemptAt = stored.lastAttemptAt ?? 0;
+    cache = stored.cache ?? null;
+  } catch {
+    // Kein Speicher vorhanden: der erste Abruf fuellt ihn.
+  }
+}
+
+async function persist() {
+  if (!cacheFile) return;
+  try {
+    await writeFile(cacheFile, JSON.stringify({ cache, lastAttemptAt }, null, 2));
+  } catch (error) {
+    console.error('usage-cache.json konnte nicht geschrieben werden:', error.message);
+  }
+}
 
 // Bei jedem Abruf frisch gelesen, nie zwischengespeichert: Claude Code rotiert den Token, und
 // eine gehaltene Kopie waere irgendwann abgelaufen. Einen eigenen Token aus `claude setup-token`
@@ -68,6 +92,7 @@ export async function getUsage() {
     return degraded(lastError ?? 'Abfrage in Sperrzeit');
   }
   lastAttemptAt = Date.now();
+  persist();
 
   let token;
   try {
@@ -100,5 +125,6 @@ export async function getUsage() {
 
   cache = { validAt: new Date().toISOString(), ...shape(await response.json()) };
   lastError = null;
+  persist();
   return { ...cache, stale: false };
 }
