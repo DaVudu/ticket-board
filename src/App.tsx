@@ -57,6 +57,16 @@ export default function App() {
     return () => clearInterval(timer);
   }, [refresh, running]);
 
+  // Browser drosseln Timer in Hintergrund-Tabs; ohne das hier stehen nach längerer
+  // Abwesenheit bis zum nächsten Tick alte Zahlen da.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refresh]);
+
   const implement = useCallback(
     async (key: string) => {
       setActionError(null);
