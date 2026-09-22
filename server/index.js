@@ -4,14 +4,15 @@ import express from 'express';
 import 'dotenv/config';
 import { jira, jiraConfigured, prepareForImplementer, toTicket, JiraError } from './jira.js';
 import { initRuns, runState, startRun } from './runs.js';
-import { getUsage } from './usage.js';
+import { getUsage, initUsage } from './usage.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const port = process.env.API_PORT ?? 8787;
 const projectKey = process.env.JIRA_PROJECT_KEY ?? 'EMP';
 
-const DEFAULT_ALLOWED_TOOLS =
-  'Read,Edit,Write,Glob,Grep,Bash,PowerShell,Agent,Artifact,mcp__atlassian';
+// Die Sitzung laeuft selbst als implementer-Agent (--agent), damit seine Schritte im
+// Ereignisstrom sichtbar sind; als Unteragent waere dazwischen minutenlang Stille.
+const DEFAULT_ALLOWED_TOOLS = 'Read,Edit,Write,Glob,Grep,Bash,PowerShell,Artifact,mcp__atlassian';
 
 const app = express();
 app.use(express.json());
@@ -80,12 +81,12 @@ app.post('/api/tickets/:key/implement', async (req, res) => {
       key,
       cwd: emperorDir,
       bin: process.env.CLAUDE_BIN ?? 'claude',
+      agent: process.env.IMPLEMENTER_AGENT ?? 'implementer',
       allowedTools: process.env.IMPLEMENTER_ALLOWED_TOOLS ?? DEFAULT_ALLOWED_TOOLS,
       prompt:
-        `Setze das Jira-Ticket ${key} im Projekt Emperor um. Delegiere die gesamte Arbeit an den ` +
-        `Subagenten "implementer" (Agent-Tool, subagent_type "implementer") und nenne ihm ${key} ` +
-        `ausdrücklich als sein Ticket; er darf kein anderes Ticket anfassen. Antworte am Ende in ` +
-        `zwei Sätzen: was umgesetzt wurde und in welchem Jira-Status ${key} jetzt steht.`,
+        `Dein Ticket ist ${key}. Setze ausschließlich dieses Ticket um und such dir kein anderes, ` +
+        `auch wenn es älter oder passender wirkt. Antworte am Ende in zwei Sätzen: was umgesetzt ` +
+        `wurde und in welchem Jira-Status ${key} jetzt steht.`,
     });
     res.status(202).json({ run, steps });
   } catch (error) {
@@ -94,6 +95,7 @@ app.post('/api/tickets/:key/implement', async (req, res) => {
 });
 
 await initRuns(path.join(root, 'data', 'runs.json'));
+await initUsage(path.join(root, 'data', 'usage-cache.json'));
 
 app.listen(port, () => {
   console.log(`API auf http://localhost:${port}`);

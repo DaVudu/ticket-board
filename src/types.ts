@@ -31,11 +31,18 @@ export type UsageSnapshot = {
   breakdown?: { name: string; percent: number }[] | null;
 };
 
+export type RunStep = {
+  at: string;
+  kind: 'tool' | 'text';
+  label: string;
+};
+
 export type Run = {
   key: string;
   startedAt: string;
   finishedAt: string | null;
   status: 'running' | 'succeeded' | 'failed';
+  steps?: RunStep[];
   result: string | null;
   error: string | null;
 };

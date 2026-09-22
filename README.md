@@ -56,9 +56,15 @@ hat den Knopf „An Implementierer übergeben". Der Klick tut zwei Dinge:
 1. **Jira vorbereiten** — das Ticket wird dem eigenen Konto zugewiesen und, falls es noch in
    `To Do` steht, nach `Ready for implementation` gezogen. Das Label wird nicht gesetzt: Es ist
    die Rollenzuordnung des Game-Designers, Tickets anderer Rollen werden abgewiesen.
-2. **Claude-CLI starten** — der Server ruft `claude -p` im Emperor-Ordner (`EMPEROR_DIR`) auf
-   und lässt den Subagenten `implementer` aus `.claude/agents/` das Ticket umsetzen. Es läuft
-   immer nur ein Lauf; Status und Ergebnis erscheinen im Panel „Implementierer".
+2. **Claude-CLI starten** — der Server ruft `claude -p --agent implementer` im Emperor-Ordner
+   (`EMPEROR_DIR`) auf. Die Sitzung läuft damit selbst als der Agent aus `.claude/agents/`,
+   statt die Arbeit an einen Unteragenten zu delegieren: Nur so tauchen seine Schritte im
+   Ereignisstrom auf, sonst wäre dazwischen minutenlang Stille.
+
+Der Server liest diesen Strom (`--output-format stream-json`) zeilenweise mit und macht aus
+jedem Werkzeugaufruf eine lesbare Zeile. Das Panel „Implementierer" zeigt sie fortlaufend, am
+Ende das Ergebnis. Es läuft immer nur ein Lauf; die letzten fünf stehen in `data/runs.json`
+und überdauern einen Serverneustart.
 
 Voraussetzungen auf dem Rechner, auf dem der Server läuft:
 

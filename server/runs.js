@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const HISTORY_LIMIT = 20;
+const STEP_LIMIT = 60;
 
 let current = null;
 let history = [];
@@ -28,10 +29,41 @@ async function persist() {
   await writeFile(historyFile, JSON.stringify(history, null, 2));
 }
 
-function finish(run, status, result, error) {
+function clip(text, max) {
+  const flat = String(text).replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+function describeTool(name, input = {}) {
+  if (name.startsWith('mcp__atlassian__')) return `Jira: ${name.slice(16)}`;
+  if (input.file_path) return `${name} ${path.basename(input.file_path)}`;
+  if (input.command) return `${name}: ${clip(input.command, 70)}`;
+  if (input.pattern) return `${name}: ${clip(input.pattern, 40)}`;
+  return name;
+}
+
+function addStep(run, kind, label) {
+  run.steps.push({ at: new Date().toISOString(), kind, label });
+  if (run.steps.length > STEP_LIMIT) run.steps.splice(0, run.steps.length - STEP_LIMIT);
+}
+
+// Die CLI gibt mit --output-format stream-json eine JSON-Zeile je Ereignis aus, waehrend sie
+// arbeitet. Daraus wird der Fortschritt, den das Panel zeigt.
+function handleEvent(run, event) {
+  if (event.type === 'assistant') {
+    for (const block of event.message?.content ?? []) {
+      if (block.type === 'tool_use') addStep(run, 'tool', describeTool(block.name, block.input));
+      else if (block.type === 'text' && block.text.trim()) addStep(run, 'text', clip(block.text, 160));
+    }
+  } else if (event.type === 'result') {
+    run.result = event.result ?? null;
+    run.resultIsError = Boolean(event.is_error);
+  }
+}
+
+function finish(run, status, error) {
   if (run.status !== 'running') return;
   run.status = status;
-  run.result = result;
   run.error = error;
   run.finishedAt = new Date().toISOString();
   current = null;
@@ -49,7 +81,7 @@ function childEnv() {
   );
 }
 
-export function startRun({ key, prompt, cwd, bin, allowedTools }) {
+export function startRun({ key, prompt, cwd, bin, agent, allowedTools }) {
   if (current) {
     throw new Error(`Es läuft bereits ein Implementierer-Lauf für ${current.key}.`);
   }
@@ -59,34 +91,48 @@ export function startRun({ key, prompt, cwd, bin, allowedTools }) {
     startedAt: new Date().toISOString(),
     finishedAt: null,
     status: 'running',
+    steps: [],
     result: null,
+    resultIsError: false,
     error: null,
   };
   current = run;
 
-  const args = ['-p', '--output-format', 'json', '--allowedTools', allowedTools];
+  const args = [
+    '-p',
+    '--agent', agent,
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--allowedTools', allowedTools,
+  ];
   const child = spawn(bin, args, { cwd, shell: true, env: childEnv(), windowsHide: true });
 
-  let stdout = '';
+  let buffer = '';
   let stderr = '';
-  child.stdout.on('data', (d) => (stdout += d));
-  child.stderr.on('data', (d) => (stderr += d));
 
-  child.on('error', (e) => finish(run, 'failed', null, `Start fehlgeschlagen: ${e.message}`));
+  child.stdout.on('data', (chunk) => {
+    buffer += chunk;
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        handleEvent(run, JSON.parse(line));
+      } catch {
+        // Eine Zeile, die kein Ereignis ist, wird uebergangen — der Lauf haengt nicht daran.
+      }
+    }
+  });
+
+  child.stderr.on('data', (d) => (stderr += d));
+  child.on('error', (e) => finish(run, 'failed', `Start fehlgeschlagen: ${e.message}`));
 
   child.on('close', (code) => {
-    let parsed = null;
-    try {
-      parsed = JSON.parse(stdout);
-    } catch {
-      // Kein JSON: die CLI hat vermutlich vor dem ersten Ergebnis abgebrochen.
-    }
-
-    if (parsed && !parsed.is_error && code === 0) {
-      finish(run, 'succeeded', parsed.result ?? stdout.trim(), null);
+    if (code === 0 && run.result !== null && !run.resultIsError) {
+      finish(run, 'succeeded', null);
     } else {
-      const detail = parsed?.result || stderr.trim() || stdout.trim() || `Exit-Code ${code}`;
-      finish(run, 'failed', parsed?.result ?? null, detail.slice(0, 2000));
+      const detail = run.result || stderr.trim() || `Exit-Code ${code}`;
+      finish(run, 'failed', clip(detail, 2000));
     }
   });
 
