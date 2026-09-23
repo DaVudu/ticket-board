@@ -12,7 +12,7 @@ const projectKey = process.env.JIRA_PROJECT_KEY ?? 'EMP';
 
 // Die Sitzung laeuft selbst als implementer-Agent (--agent), damit seine Schritte im
 // Ereignisstrom sichtbar sind; als Unteragent waere dazwischen minutenlang Stille.
-const DEFAULT_ALLOWED_TOOLS = 'Read,Edit,Write,Glob,Grep,Bash,PowerShell,Artifact,mcp__atlassian';
+const DEFAULT_ALLOWED_TOOLS = 'Read,Edit,Write,Glob,Grep,Bash,PowerShell,mcp__atlassian';
 
 // Die Session-ID wird Teil einer Shell-Befehlszeile (--resume); nur das exakte Format zulassen.
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

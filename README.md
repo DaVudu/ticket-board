@@ -86,9 +86,8 @@ Voraussetzungen auf dem Rechner, auf dem der Server läuft:
 
 - lokaler Klon von `DaVudu/Emperor`, Pfad in `EMPEROR_DIR`
 - `npm install -g @anthropic-ai/claude-code`
-- einmal interaktiv `claude` im Emperor-Ordner starten: `/login` mit dem claude.ai-Abo-Konto
-  (für das Artifact-Tool), `/mcp` für die Atlassian-Anmeldung. Die Läufe vom Dashboard aus
-  nutzen diese Anmeldungen.
+- einmal interaktiv `claude` im Emperor-Ordner starten: `/login` mit dem claude.ai-Abo-Konto,
+  `/mcp` für die Atlassian-Anmeldung. Die Läufe vom Dashboard aus nutzen diese Anmeldungen.
 
 Berechtigungsanfragen kann während eines Laufs niemand beantworten, deshalb bekommt er die
 Werkzeuge aus `IMPLEMENTER_ALLOWED_TOOLS` vorab freigegeben. Bricht ein Lauf mit
