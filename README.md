@@ -65,8 +65,8 @@ hat den Knopf „An Implementierer übergeben". Der Klick tut zwei Dinge:
 
 Der Server liest diesen Strom (`--output-format stream-json`) zeilenweise mit und macht aus
 jedem Werkzeugaufruf eine lesbare Zeile. Das Panel „Implementierer" zeigt sie fortlaufend, am
-Ende das Ergebnis. Es läuft immer nur ein Lauf; die letzten fünf stehen in `data/runs.json`
-und überdauern einen Serverneustart.
+Ende das Ergebnis. Es läuft immer nur ein Lauf; die letzten 20 stehen in `data/runs.json` und
+überdauern einen Serverneustart, das Panel zeigt davon die neuesten fünf.
 
 ### Antworten und weiterführen
 
