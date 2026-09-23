@@ -66,6 +66,22 @@ jedem Werkzeugaufruf eine lesbare Zeile. Das Panel „Implementierer" zeigt sie 
 Ende das Ergebnis. Es läuft immer nur ein Lauf; die letzten fünf stehen in `data/runs.json`
 und überdauern einen Serverneustart.
 
+### Antworten und weiterführen
+
+Ein Lauf mit `claude -p` endet, sobald der Agent seinen Zug beendet — auch wenn er dabei eine
+Frage stellt. Unter dem jeweils neuesten abgeschlossenen Lauf einer Sitzung steht deshalb ein
+Antwortfeld. Die Antwort startet `claude -p --resume <session-id>`: Der Agent macht mit vollem
+Kontext weiter, die Session-ID bleibt dieselbe, und der neue Lauf zeigt die Antwort obenan.
+Jira wird dabei nicht vorbereitet — das Ticket hat der Agent seit dem ersten Lauf in der Hand.
+
+Das Feld steht unter jedem abgeschlossenen Lauf, nicht nur unter Rückfragen: Ob die letzte
+Nachricht eine Frage war, lässt sich nicht verlässlich erkennen, und so lässt sich auch nach
+einem erfolgreichen Lauf noch etwas nachschieben.
+
+Die Session-ID wird Teil der Befehlszeile. Der Endpunkt akzeptiert deshalb nur das exakte
+UUID-Format und nur IDs, zu denen es im Verlauf bereits einen Lauf gibt. Die Antwort selbst geht
+über die Standardeingabe.
+
 Voraussetzungen auf dem Rechner, auf dem der Server läuft:
 
 - lokaler Klon von `DaVudu/Emperor`, Pfad in `EMPEROR_DIR`
@@ -74,9 +90,10 @@ Voraussetzungen auf dem Rechner, auf dem der Server läuft:
   (für das Artifact-Tool), `/mcp` für die Atlassian-Anmeldung. Die Läufe vom Dashboard aus
   nutzen diese Anmeldungen.
 
-Ein Lauf ohne Bediener kann keine Rückfragen beantworten, deshalb bekommt er die Werkzeuge aus
-`IMPLEMENTER_ALLOWED_TOOLS` vorab freigegeben. Bricht ein Lauf mit Berechtigungsfehlern ab,
-steht das fehlende Werkzeug in der Fehlermeldung im Panel.
+Berechtigungsanfragen kann während eines Laufs niemand beantworten, deshalb bekommt er die
+Werkzeuge aus `IMPLEMENTER_ALLOWED_TOOLS` vorab freigegeben. Bricht ein Lauf mit
+Berechtigungsfehlern ab, steht das fehlende Werkzeug in der Fehlermeldung im Panel. Inhaltliche
+Rückfragen dagegen lassen sich über das Antwortfeld beantworten (siehe oben).
 
 Der Verlauf liegt in `data/runs.json`; ein Neustart des Servers beendet einen laufenden Lauf
 nicht, verliert aber die Verbindung zu ihm — der Jira-Status bleibt in dem Fall die Wahrheit.

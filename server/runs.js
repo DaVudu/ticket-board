@@ -50,6 +50,9 @@ function addStep(run, kind, label) {
 // Die CLI gibt mit --output-format stream-json eine JSON-Zeile je Ereignis aus, waehrend sie
 // arbeitet. Daraus wird der Fortschritt, den das Panel zeigt.
 function handleEvent(run, event) {
+  // Steht in jedem Ereignis, schon im ersten (init); wird fuer --resume gebraucht.
+  if (event.session_id && !run.sessionId) run.sessionId = event.session_id;
+
   if (event.type === 'assistant') {
     for (const block of event.message?.content ?? []) {
       if (block.type === 'tool_use') addStep(run, 'tool', describeTool(block.name, block.input));
@@ -81,13 +84,17 @@ function childEnv() {
   );
 }
 
-export function startRun({ key, prompt, cwd, bin, agent, allowedTools }) {
+// Mit `resume` wird eine bestehende Sitzung fortgesetzt: Die CLI behaelt Kontext und Agent,
+// die Session-ID bleibt dieselbe. `reply` ist dann Viktors Antwort, die den Lauf ausgeloest hat.
+export function startRun({ key, prompt, cwd, bin, agent, allowedTools, resume, reply }) {
   if (current) {
     throw new Error(`Es läuft bereits ein Implementierer-Lauf für ${current.key}.`);
   }
 
   const run = {
     key,
+    sessionId: resume ?? null,
+    reply: reply ?? null,
     startedAt: new Date().toISOString(),
     finishedAt: null,
     status: 'running',
@@ -100,6 +107,9 @@ export function startRun({ key, prompt, cwd, bin, agent, allowedTools }) {
 
   const args = [
     '-p',
+    ...(resume ? ['--resume', resume] : []),
+    // Beim Fortsetzen nicht noetig, die Sitzung merkt sich den Agenten — aber explizit bleibt
+    // es richtig, falls sich dieses Verhalten der CLI aendert.
     '--agent', agent,
     '--output-format', 'stream-json',
     '--verbose',

@@ -77,6 +77,19 @@ export default function App() {
     [refresh],
   );
 
+  const reply = useCallback(
+    async (sessionId: string, text: string) => {
+      const result = await request<{ run: unknown }>(`/api/runs/${sessionId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      await refresh();
+      return result.error;
+    },
+    [refresh],
+  );
+
   return (
     <main>
       <header className="page-head">
@@ -91,7 +104,7 @@ export default function App() {
 
       <UsagePanel snapshot={usage} error={usageError} />
 
-      <RunPanel state={runs} error={runError} />
+      <RunPanel state={runs} error={runError} onReply={reply} />
 
       <section className="panel">
         <div className="panel-head">

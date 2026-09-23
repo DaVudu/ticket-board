@@ -39,6 +39,8 @@ export type RunStep = {
 
 export type Run = {
   key: string;
+  sessionId?: string | null;
+  reply?: string | null;
   startedAt: string;
   finishedAt: string | null;
   status: 'running' | 'succeeded' | 'failed';

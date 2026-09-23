@@ -14,6 +14,19 @@ const projectKey = process.env.JIRA_PROJECT_KEY ?? 'EMP';
 // Ereignisstrom sichtbar sind; als Unteragent waere dazwischen minutenlang Stille.
 const DEFAULT_ALLOWED_TOOLS = 'Read,Edit,Write,Glob,Grep,Bash,PowerShell,Artifact,mcp__atlassian';
 
+// Die Session-ID wird Teil einer Shell-Befehlszeile (--resume); nur das exakte Format zulassen.
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const REPLY_MAX = 4000;
+
+function implementerOptions(emperorDir) {
+  return {
+    cwd: emperorDir,
+    bin: process.env.CLAUDE_BIN ?? 'claude',
+    agent: process.env.IMPLEMENTER_AGENT ?? 'implementer',
+    allowedTools: process.env.IMPLEMENTER_ALLOWED_TOOLS ?? DEFAULT_ALLOWED_TOOLS,
+  };
+}
+
 const app = express();
 app.use(express.json());
 
@@ -79,16 +92,58 @@ app.post('/api/tickets/:key/implement', async (req, res) => {
     const steps = await prepareForImplementer(key);
     const run = startRun({
       key,
-      cwd: emperorDir,
-      bin: process.env.CLAUDE_BIN ?? 'claude',
-      agent: process.env.IMPLEMENTER_AGENT ?? 'implementer',
-      allowedTools: process.env.IMPLEMENTER_ALLOWED_TOOLS ?? DEFAULT_ALLOWED_TOOLS,
+      ...implementerOptions(emperorDir),
       prompt:
         `Dein Ticket ist ${key}. Setze ausschließlich dieses Ticket um und such dir kein anderes, ` +
         `auch wenn es älter oder passender wirkt. Antworte am Ende in zwei Sätzen: was umgesetzt ` +
         `wurde und in welchem Jira-Status ${key} jetzt steht.`,
     });
     res.status(202).json({ run, steps });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// Setzt eine Sitzung mit Viktors Antwort fort. Jira wird nicht angefasst: Das Ticket hat der
+// Agent seit dem ersten Lauf in der Hand.
+app.post('/api/runs/:sessionId/reply', (req, res) => {
+  const emperorDir = process.env.EMPEROR_DIR;
+  if (!emperorDir) {
+    return res.status(503).json({ error: 'not_configured', message: 'EMPEROR_DIR fehlt in .env' });
+  }
+
+  const { sessionId } = req.params;
+  if (!SESSION_ID.test(sessionId)) {
+    return res.status(400).json({ error: 'bad_session', message: 'Ungültige Session-ID.' });
+  }
+
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (!text) {
+    return res.status(400).json({ error: 'empty_reply', message: 'Die Antwort ist leer.' });
+  }
+  if (text.length > REPLY_MAX) {
+    return res.status(400).json({ error: 'reply_too_long', message: `Höchstens ${REPLY_MAX} Zeichen.` });
+  }
+
+  const { current, history } = runState();
+  if (current) {
+    return res.status(409).json({ error: 'run_active', message: `Es läuft bereits ein Lauf für ${current.key}.` });
+  }
+
+  const previous = history.find((r) => r.sessionId === sessionId);
+  if (!previous) {
+    return res.status(404).json({ error: 'unknown_session', message: 'Zu dieser Sitzung gibt es keinen Lauf.' });
+  }
+
+  try {
+    const run = startRun({
+      key: previous.key,
+      ...implementerOptions(emperorDir),
+      resume: sessionId,
+      reply: text,
+      prompt: text,
+    });
+    res.status(202).json({ run });
   } catch (error) {
     sendError(res, error);
   }
