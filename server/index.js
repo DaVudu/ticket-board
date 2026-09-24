@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import express from 'express';
 import 'dotenv/config';
-import { jira, jiraConfigured, prepareForImplementer, toTicket, JiraError } from './jira.js';
+import { boardTickets, jiraConfigured, prepareForImplementer, JiraError } from './jira.js';
 import { initRuns, removeRun, runState, startRun } from './runs.js';
 import { getUsage, initUsage } from './usage.js';
 
@@ -45,12 +45,8 @@ function sendError(res, error) {
 app.get('/api/tickets', async (_req, res) => {
   if (!jiraConfigured()) return notConfigured(res);
   try {
-    const data = await jira('POST', '/search/jql', {
-      jql: `project = ${projectKey} ORDER BY updated DESC`,
-      maxResults: 100,
-      fields: ['summary', 'status', 'issuetype', 'priority', 'labels', 'assignee', 'updated', 'duedate'],
-    });
-    res.json({ fetchedAt: new Date().toISOString(), tickets: (data.issues ?? []).map(toTicket) });
+    const tickets = await boardTickets(projectKey);
+    res.json({ fetchedAt: new Date().toISOString(), tickets });
   } catch (error) {
     sendError(res, error);
   }

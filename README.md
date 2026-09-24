@@ -18,6 +18,8 @@ kopieren und ausfüllen:
 
 - `JIRA_API_TOKEN` unter https://id.atlassian.com/manage-profile/security/api-tokens erstellen
 - `JIRA_EMAIL` ist die Adresse des Atlassian-Kontos
+- `JIRA_BOARD_ID` ist optional: Angezeigt werden nur die Tickets auf diesem Board, der Backlog
+  nicht. Ohne Angabe nimmt der Server das erste Board des Projekts.
 
 Ohne `.env` zeigt das Dashboard einen Hinweis statt der Tickets.
 

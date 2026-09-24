@@ -15,8 +15,17 @@ export class JiraError extends Error {
   }
 }
 
-export async function jira(method, path, body) {
-  const response = await fetch(`${process.env.JIRA_BASE_URL}/rest/api/3${path}`, {
+export function jira(method, path, body) {
+  return call('/rest/api/3', method, path, body);
+}
+
+// Boards und Backlog gibt es nur in der Agile-API, nicht in der Plattform-API.
+export function agile(method, path, body) {
+  return call('/rest/agile/1.0', method, path, body);
+}
+
+async function call(api, method, path, body) {
+  const response = await fetch(`${process.env.JIRA_BASE_URL}${api}${path}`, {
     method,
     headers: {
       Authorization: authHeader(),
@@ -53,7 +62,43 @@ export function toTicket(issue) {
   };
 }
 
-const STARTABLE = new Set(['To Do', 'Ready for implementation', 'In Progress']);
+const TICKET_FIELDS = 'summary,status,issuetype,priority,labels,assignee,updated,duedate';
+
+// Die Agile-API liefert hoechstens 50 Vorgaenge je Seite.
+async function allPages(path, fields) {
+  const issues = [];
+  for (let startAt = 0; ; ) {
+    const page = await agile('GET', `${path}?startAt=${startAt}&maxResults=50&fields=${fields}`);
+    const batch = page.issues ?? [];
+    issues.push(...batch);
+    startAt += batch.length;
+    if (!batch.length || startAt >= page.total) return issues;
+  }
+}
+
+async function resolveBoardId(projectKey) {
+  if (process.env.JIRA_BOARD_ID) return process.env.JIRA_BOARD_ID;
+  const { values } = await agile('GET', `/board?projectKeyOrId=${encodeURIComponent(projectKey)}`);
+  if (!values?.length) throw new JiraError(404, `Zum Projekt ${projectKey} gibt es kein Board.`);
+  return values[0].id;
+}
+
+// Die Tickets, die auf dem Board liegen. Der Backlog haengt nicht am Status, sondern am Board;
+// per JQL laesst er sich nicht ausschliessen, deshalb Board-Vorgaenge minus Backlog.
+export async function boardTickets(projectKey) {
+  const boardId = await resolveBoardId(projectKey);
+  const [issues, backlog] = await Promise.all([
+    allPages(`/board/${boardId}/issue`, TICKET_FIELDS),
+    allPages(`/board/${boardId}/backlog`, 'status'),
+  ]);
+  const inBacklog = new Set(backlog.map((i) => i.key));
+  return issues
+    .filter((i) => !inBacklog.has(i.key))
+    .map(toTicket)
+    .sort((a, b) => b.updated.localeCompare(a.updated));
+}
+
+const STARTABLE =new Set(['To Do', 'Ready for implementation', 'In Progress']);
 const READY = 'Ready for implementation';
 const LABEL = 'umsetzung';
 
