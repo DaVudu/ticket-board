@@ -3,7 +3,7 @@ import path from 'node:path';
 import express from 'express';
 import 'dotenv/config';
 import { jira, jiraConfigured, prepareForImplementer, toTicket, JiraError } from './jira.js';
-import { initRuns, runState, startRun } from './runs.js';
+import { initRuns, removeRun, runState, startRun } from './runs.js';
 import { getUsage, initUsage } from './usage.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -66,6 +66,22 @@ app.get('/api/usage', async (_req, res) => {
 
 app.get('/api/runs', (_req, res) => {
   res.json(runState());
+});
+
+// Entfernt einen abgeschlossenen Lauf aus dem Verlauf. Sitzung und Jira-Ticket bleiben unberuehrt.
+app.delete('/api/runs/:startedAt', async (req, res) => {
+  const { startedAt } = req.params;
+  if (runState().current?.startedAt === startedAt) {
+    return res.status(409).json({ error: 'run_active', message: 'Ein laufender Lauf lässt sich nicht entfernen.' });
+  }
+  try {
+    if (!(await removeRun(startedAt))) {
+      return res.status(404).json({ error: 'unknown_run', message: 'Diesen Lauf gibt es nicht mehr.' });
+    }
+    res.json({ removed: startedAt });
+  } catch (error) {
+    sendError(res, error);
+  }
 });
 
 app.post('/api/tickets/:key/implement', async (req, res) => {

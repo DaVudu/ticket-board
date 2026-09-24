@@ -9,6 +9,7 @@ const STATUS_LABEL: Record<Run['status'], string> = {
 };
 
 type ReplyHandler = (sessionId: string, text: string) => Promise<string | null>;
+type RemoveHandler = (startedAt: string) => Promise<string | null>;
 
 function Steps({ steps, live }: { steps: NonNullable<Run['steps']>; live: boolean }) {
   const end = useRef<HTMLLIElement>(null);
@@ -67,12 +68,27 @@ function ReplyForm({ sessionId, onReply }: { sessionId: string; onReply: ReplyHa
   );
 }
 
-function RunRow({ run, canReply, onReply }: { run: Run; canReply: boolean; onReply: ReplyHandler }) {
+type RowProps = { run: Run; canReply: boolean; onReply: ReplyHandler; onRemove: RemoveHandler };
+
+function RunRow({ run, canReply, onReply, onRemove }: RowProps) {
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const live = run.status === 'running';
   const when = live
     ? `seit ${relativeFromNow(run.startedAt).replace('vor ', '')}`
     : relativeFromNow(run.finishedAt ?? run.startedAt);
   const steps = run.steps ?? [];
+
+  async function remove() {
+    setRemoving(true);
+    setRemoveError(null);
+    const failure = await onRemove(run.startedAt);
+    // Bei Erfolg verschwindet die Zeile mit dem Refresh; nur ein Fehler bleibt hier stehen.
+    if (failure) {
+      setRemoving(false);
+      setRemoveError(failure);
+    }
+  }
 
   return (
     <li className={`run run-${run.status}`}>
@@ -80,7 +96,13 @@ function RunRow({ run, canReply, onReply }: { run: Run; canReply: boolean; onRep
         <span className="run-key">{run.key}</span>
         <span className="run-status">{STATUS_LABEL[run.status]}</span>
         <span className="muted small">{when}</span>
+        {!live && (
+          <button type="button" className="run-remove" onClick={remove} disabled={removing} title="Lauf entfernen">
+            ×
+          </button>
+        )}
       </div>
+      {removeError && <p className="reply-error">{removeError}</p>}
 
       {run.reply && (
         <p className="run-reply">
@@ -104,9 +126,10 @@ type Props = {
   state: RunState | null;
   error: string | null;
   onReply: ReplyHandler;
+  onRemove: RemoveHandler;
 };
 
-export default function RunPanel({ state, error, onReply }: Props) {
+export default function RunPanel({ state, error, onReply, onRemove }: Props) {
   if (error) {
     return (
       <section className="panel">
@@ -148,6 +171,7 @@ export default function RunPanel({ state, error, onReply }: Props) {
               run={run}
               canReply={idle && run.status !== 'running' && newestOfSession.has(run)}
               onReply={onReply}
+              onRemove={onRemove}
             />
           ))}
         </ul>

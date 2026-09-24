@@ -29,6 +29,16 @@ async function persist() {
   await writeFile(historyFile, JSON.stringify(history, null, 2));
 }
 
+// Laeufe haben keine eigene ID; der Startzeitpunkt ist eindeutig, weil nie zwei gleichzeitig
+// laufen. Der laufende Lauf steht nicht in history und laesst sich so nicht entfernen.
+export async function removeRun(startedAt) {
+  const index = history.findIndex((r) => r.startedAt === startedAt);
+  if (index === -1) return false;
+  history = history.filter((_, i) => i !== index);
+  await persist();
+  return true;
+}
+
 function clip(text, max) {
   const flat = String(text).replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;

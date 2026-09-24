@@ -90,6 +90,17 @@ export default function App() {
     [refresh],
   );
 
+  const removeRun = useCallback(
+    async (startedAt: string) => {
+      const result = await request<{ removed: string }>(`/api/runs/${encodeURIComponent(startedAt)}`, {
+        method: 'DELETE',
+      });
+      await refresh();
+      return result.error;
+    },
+    [refresh],
+  );
+
   return (
     <main>
       <header className="page-head">
@@ -104,7 +115,7 @@ export default function App() {
 
       <UsagePanel snapshot={usage} error={usageError} />
 
-      <RunPanel state={runs} error={runError} onReply={reply} />
+      <RunPanel state={runs} error={runError} onReply={reply} onRemove={removeRun} />
 
       <section className="panel">
         <div className="panel-head">
