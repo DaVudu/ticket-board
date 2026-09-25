@@ -23,6 +23,14 @@ kopieren und ausfüllen:
 
 Ohne `.env` zeigt das Dashboard einen Hinweis statt der Tickets.
 
+## Board
+
+Die Spalten kommen aus der Konfiguration des Jira-Boards und stehen immer alle nebeneinander,
+auch leere. Ein Ticket lässt sich per Drag & Drop in eine andere Spalte ziehen: Der Server
+führt dafür den passenden Jira-Übergang aus (`POST /api/tickets/:key/transition`). Scheitert
+er, erscheint die Jira-Meldung über dem Board und die Karte springt zurück. Ein Ticket, an dem
+gerade der Implementierer arbeitet, lässt sich nicht verschieben.
+
 ## Nutzungslimits
 
 Die 5-Stunden- und Wochenwerte kommen von `GET https://api.anthropic.com/api/oauth/usage`.
