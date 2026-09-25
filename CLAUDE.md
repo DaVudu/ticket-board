@@ -17,4 +17,4 @@ und fragen, nicht nebenbei miterledigen.
 
 ## Sprache
 
-Deutsch, in Antworten wie in Kommentaren und Commit-Messages.
+Deutsch, in Antworten wie in Kommentaren und Commit-Messages. Halte die Rückmeldungen kurz, knapp, und präzise.
