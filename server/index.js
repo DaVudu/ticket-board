@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import express from 'express';
 import 'dotenv/config';
-import { boardTickets, jiraConfigured, prepareForImplementer, JiraError } from './jira.js';
+import { boardTickets, jiraConfigured, moveTicket, prepareForImplementer, JiraError } from './jira.js';
 import { initRuns, removeRun, runState, startRun } from './runs.js';
 import { getUsage, initUsage } from './usage.js';
 
@@ -45,8 +45,8 @@ function sendError(res, error) {
 app.get('/api/tickets', async (_req, res) => {
   if (!jiraConfigured()) return notConfigured(res);
   try {
-    const tickets = await boardTickets(projectKey);
-    res.json({ fetchedAt: new Date().toISOString(), tickets });
+    const { columns, tickets } = await boardTickets(projectKey);
+    res.json({ fetchedAt: new Date().toISOString(), columns, tickets });
   } catch (error) {
     sendError(res, error);
   }
@@ -75,6 +75,32 @@ app.delete('/api/runs/:startedAt', async (req, res) => {
       return res.status(404).json({ error: 'unknown_run', message: 'Diesen Lauf gibt es nicht mehr.' });
     }
     res.json({ removed: startedAt });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/tickets/:key/transition', async (req, res) => {
+  if (!jiraConfigured()) return notConfigured(res);
+
+  const key = req.params.key.toUpperCase();
+  if (!new RegExp(`^${projectKey}-\\d+$`).test(key)) {
+    return res.status(400).json({ error: 'bad_key', message: `Ungültiger Vorgangsschlüssel: ${key}` });
+  }
+
+  const statusId = req.body?.statusId;
+  if (typeof statusId !== 'string' || !/^\d+$/.test(statusId)) {
+    return res.status(400).json({ error: 'bad_status', message: 'statusId fehlt oder ist ungültig.' });
+  }
+
+  // Waehrend der Implementierer am Ticket arbeitet, gehoert der Status ihm.
+  if (runState().current?.key === key) {
+    return res.status(409).json({ error: 'run_active', message: `Für ${key} läuft gerade ein Implementierer-Lauf.` });
+  }
+
+  try {
+    await moveTicket(key, statusId);
+    res.json({ key, statusId });
   } catch (error) {
     sendError(res, error);
   }

@@ -51,6 +51,7 @@ export function toTicket(issue) {
     key: issue.key,
     summary: f.summary,
     status: f.status?.name ?? 'Unbekannt',
+    statusId: f.status?.id ?? null,
     statusCategory: f.status?.statusCategory?.key ?? 'new',
     type: f.issuetype?.name ?? '',
     priority: f.priority?.name ?? '',
@@ -83,19 +84,49 @@ async function resolveBoardId(projectKey) {
   return values[0].id;
 }
 
-// Die Tickets, die auf dem Board liegen. Der Backlog haengt nicht am Status, sondern am Board;
-// per JQL laesst er sich nicht ausschliessen, deshalb Board-Vorgaenge minus Backlog.
+// Die Tickets, die auf dem Board liegen, und die Spalten des Boards. Der Backlog haengt nicht
+// am Status, sondern am Board; per JQL laesst er sich nicht ausschliessen, deshalb
+// Board-Vorgaenge minus Backlog. Die Spalten kommen aus der Board-Konfiguration, damit auch
+// leere Spalten angezeigt werden.
 export async function boardTickets(projectKey) {
   const boardId = await resolveBoardId(projectKey);
-  const [issues, backlog] = await Promise.all([
+  const [issues, backlog, config] = await Promise.all([
     allPages(`/board/${boardId}/issue`, TICKET_FIELDS),
     allPages(`/board/${boardId}/backlog`, 'status'),
+    agile('GET', `/board/${boardId}/configuration`),
   ]);
   const inBacklog = new Set(backlog.map((i) => i.key));
-  return issues
+  const tickets = issues
     .filter((i) => !inBacklog.has(i.key))
     .map(toTicket)
     .sort((a, b) => b.updated.localeCompare(a.updated));
+
+  // Die Konfiguration kennt nur Status-IDs; die Kategorie (fuer die Farbe) liefern die Tickets.
+  // Ohne Ticket in der Spalte gilt die Position: erste Spalte neu, letzte erledigt.
+  const columns = (config.columnConfig?.columns ?? [])
+    .map((c) => ({ name: c.name, statusIds: (c.statuses ?? []).map((s) => s.id) }))
+    .filter((c) => c.statusIds.length)
+    .map((c, index, all) => {
+      const sample = tickets.find((t) => c.statusIds.includes(t.statusId));
+      const fallback = index === 0 ? 'new' : index === all.length - 1 ? 'done' : 'indeterminate';
+      return { ...c, category: sample?.statusCategory ?? fallback };
+    });
+
+  return { columns, tickets };
+}
+
+// Verschiebt ein Ticket in den Status mit der ID `statusId`, ueber den passenden Jira-Uebergang.
+export async function moveTicket(key, statusId) {
+  const [issue, { transitions }] = await Promise.all([
+    jira('GET', `/issue/${key}?fields=status`),
+    jira('GET', `/issue/${key}/transitions`),
+  ]);
+  const status = issue.fields.status;
+  if (status.id === statusId) return;
+
+  const target = transitions.find((t) => t.to?.id === statusId);
+  if (!target) throw new JiraError(409, `Kein Übergang von "${status.name}" in den Zielstatus gefunden.`);
+  await jira('POST', `/issue/${key}/transitions`, { transition: { id: target.id } });
 }
 
 const STARTABLE =new Set(['To Do', 'Ready for implementation', 'In Progress']);

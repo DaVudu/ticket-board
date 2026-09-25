@@ -2,6 +2,7 @@ export type Ticket = {
   key: string;
   summary: string;
   status: string;
+  statusId: string | null;
   statusCategory: 'new' | 'indeterminate' | 'done' | string;
   type: string;
   priority: string;
@@ -12,8 +13,15 @@ export type Ticket = {
   url: string;
 };
 
+export type BoardColumn = {
+  name: string;
+  statusIds: string[];
+  category: 'new' | 'indeterminate' | 'done' | string;
+};
+
 export type TicketResponse = {
   fetchedAt: string;
+  columns: BoardColumn[];
   tickets: Ticket[];
 };
 

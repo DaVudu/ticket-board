@@ -15,6 +15,10 @@
   --cat-new: #7d8590;
   --cat-progress: #d29922;
   --cat-done: #3fb950;
+  --label-design: #3fb950;
+  --label-umsetzung: #db61a2;
+  --label-test: #f0883e;
+  --label-grafik: #58a6ff;
 }
 
 * {
@@ -30,9 +34,7 @@ body {
 }
 
 main {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 32px 16px 64px;
+  padding: 32px 24px 64px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -226,19 +228,22 @@ button:not(:disabled):hover {
   color: var(--text-muted);
 }
 
+/* --cols setzt TicketBoard aus der Spaltenzahl des Jira-Boards. minmax(0, …) erlaubt den
+   Spalten, schmaler als ihr Inhalt zu werden, statt umzubrechen. */
 .board {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr));
+  gap: 12px;
   align-items: start;
 }
 
 .column {
+  min-width: 0;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-top: 3px solid var(--cat-new);
   border-radius: 10px;
-  padding: 14px;
+  padding: 10px;
 }
 
 .column.cat-indeterminate {
@@ -249,11 +254,24 @@ button:not(:disabled):hover {
   border-top-color: var(--cat-done);
 }
 
+.column.drop-target {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 .column-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
+}
+
+.column-head h3 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .count {
@@ -277,7 +295,8 @@ button:not(:disabled):hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -295,10 +314,17 @@ button:not(:disabled):hover {
   text-decoration: underline;
 }
 
+/* Höchstens zwei Zeilen, der volle Titel steht im Tooltip. */
 .card-summary {
   margin: 0;
   font-size: 14px;
   line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .card-meta {
@@ -325,13 +351,33 @@ button:not(:disabled):hover {
   color: var(--text-muted);
 }
 
+.card[draggable='true'] {
+  cursor: grab;
+}
+
+.card.dragging {
+  opacity: 0.4;
+}
+
+/* Farbige Labels: Schrift und Rahmen in der Labelfarbe, Hintergrund schwach getönt. */
+.label-design { --label-color: var(--label-design); }
+.label-umsetzung { --label-color: var(--label-umsetzung); }
+.label-test { --label-color: var(--label-test); }
+.label-grafik { --label-color: var(--label-grafik); }
+
+.label[class*='label-'] {
+  color: var(--label-color);
+  border-color: color-mix(in srgb, var(--label-color) 60%, transparent);
+  background: color-mix(in srgb, var(--label-color) 15%, transparent);
+}
+
 .card-active {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
 .card-action {
-  align-self: flex-start;
+  align-self: stretch;
   margin-top: 2px;
   padding: 6px 12px;
   font-size: 13px;

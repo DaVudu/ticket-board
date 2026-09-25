@@ -3,7 +3,7 @@ import UsagePanel from './components/UsagePanel';
 import TicketBoard from './components/TicketBoard';
 import RunPanel from './components/RunPanel';
 import { relativeFromNow } from './format';
-import type { ApiError, RunState, Ticket, TicketResponse, UsageSnapshot } from './types';
+import type { ApiError, BoardColumn, RunState, Ticket, TicketResponse, UsageSnapshot } from './types';
 
 const REFRESH_MS = 60_000;
 const REFRESH_WHILE_RUNNING_MS = 10_000;
@@ -20,6 +20,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<{ data: T | 
 }
 
 export default function App() {
+  const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [ticketError, setTicketError] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export default function App() {
     ]);
 
     if (ticketResult.data) {
+      setColumns(ticketResult.data.columns);
       setTickets(ticketResult.data.tickets);
       setFetchedAt(ticketResult.data.fetchedAt);
     }
@@ -71,6 +73,27 @@ export default function App() {
     async (key: string) => {
       setActionError(null);
       const result = await request<{ steps: string[] }>(`/api/tickets/${key}/implement`, { method: 'POST' });
+      if (result.error) setActionError(`${key}: ${result.error}`);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  // Die Karte wandert sofort; der anschließende Refresh holt bei einem Fehler den echten Stand zurück.
+  const move = useCallback(
+    async (key: string, column: BoardColumn) => {
+      const statusId = column.statusIds[0];
+      setActionError(null);
+      setTickets((current) =>
+        current.map((t) =>
+          t.key === key ? { ...t, statusId, status: column.name, statusCategory: column.category } : t,
+        ),
+      );
+      const result = await request<{ key: string }>(`/api/tickets/${key}/transition`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statusId }),
+      });
       if (result.error) setActionError(`${key}: ${result.error}`);
       await refresh();
     },
@@ -124,10 +147,12 @@ export default function App() {
         </div>
         {actionError && <p className="notice">{actionError}</p>}
         <TicketBoard
+          columns={columns}
           tickets={tickets}
           error={ticketError}
           activeRunKey={runs?.current?.key ?? null}
           onImplement={implement}
+          onMove={move}
         />
       </section>
     </main>
