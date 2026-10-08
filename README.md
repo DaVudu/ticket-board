@@ -1,6 +1,7 @@
 # Ticket Board
 
-Dashboard für die Tickets des Jira-Projekts **Emperor (EMP)** und die Claude-Nutzungslimits.
+Ticket-Board für das Projekt **Emperor (EMP)** mit den Claude-Nutzungslimits. Es ersetzt das
+Jira-Board: Tickets werden hier angelegt, bearbeitet und verschoben und liegen lokal in SQLite.
 
 ## Start
 
@@ -9,27 +10,64 @@ npm install
 npm run dev
 ```
 
-Frontend läuft auf http://localhost:5173, die API auf http://localhost:8787.
+Frontend läuft auf http://localhost:5173, die API auf http://localhost:8787. Nötig ist
+**Node 22.5 oder neuer** (für `node:sqlite`).
 
-## Jira-Anbindung
+## Tickets
 
-Die Tickets werden live über die Jira-REST-API geladen. Dafür `.env.example` nach `.env`
-kopieren und ausfüllen:
+Die Tickets liegen in `data/board.db` (SQLite, Pfad über `BOARD_DB` änderbar). Die Datei
+entsteht beim ersten Start; `data/` ist nicht im Repo.
 
-- `JIRA_API_TOKEN` unter https://id.atlassian.com/manage-profile/security/api-tokens erstellen
-- `JIRA_EMAIL` ist die Adresse des Atlassian-Kontos
-- `JIRA_BOARD_ID` ist optional: Angezeigt werden nur die Tickets auf diesem Board, der Backlog
-  nicht. Ohne Angabe nimmt der Server das erste Board des Projekts.
+Ein Ticket hat Schlüssel (`EMP-n`, fortlaufend, ein gelöschter Schlüssel wird nicht neu
+vergeben), Titel, Beschreibung (Markdown), Status, Typ, Priorität, Zuständigen, Labels,
+Kommentare und Verknüpfungen zu anderen Tickets.
 
-Ohne `.env` zeigt das Dashboard einen Hinweis statt der Tickets.
+Was es an Status, Typen, Prioritäten, Zuständigen und Verknüpfungsarten gibt, steht in
+`server/board.config.json`. Nach einer Änderung dort den Server neu starten. Ein Ticket, dessen
+Status aus der Datei entfernt wurde, behält ihn; das Board nennt es dann über den Spalten.
 
-## Board
+### Board und Backlog
 
-Die Spalten kommen aus der Konfiguration des Jira-Boards und stehen immer alle nebeneinander,
-auch leere. Ein Ticket lässt sich per Drag & Drop in eine andere Spalte ziehen: Der Server
-führt dafür den passenden Jira-Übergang aus (`POST /api/tickets/:key/transition`). Scheitert
-er, erscheint die Jira-Meldung über dem Board und die Karte springt zurück. Ein Ticket, an dem
-gerade der Implementierer arbeitet, lässt sich nicht verschieben.
+- **Board:** je Status eine Spalte, alle nebeneinander, auch leere. Karten lassen sich per Drag &
+  Drop in eine andere Spalte und innerhalb einer Spalte umsortieren: Ein Drop auf eine Karte
+  reiht davor ein, ein Drop auf freie Fläche ans Ende.
+- **Backlog:** Tickets, die noch nicht aufs Board gehören, als Liste in Prioritätsreihenfolge,
+  per Drag & Drop sortierbar. „Aufs Board“ holt ein Ticket in seine Statusspalte; zurück geht es
+  über „Im Backlog“ im Ticket.
+- **Abhängigkeiten:** Ein Ticket mit offenem Blocker (Verknüpfung „blockiert“ von einem Ticket,
+  das noch nicht in einem Status der Kategorie `done` steht) bekommt auf der Karte einen roten
+  Rand und den Hinweis „Blockiert von …“.
+
+Ein Klick auf eine Karte öffnet das Ticket. Der Schlüssel steht dann im Hash der URL
+(`#EMP-12`), so lässt sich ein Link auf ein Ticket teilen. Gespeichert werden nur die
+geänderten Felder: Ändert ein Agent parallel ein anderes Feld, bleibt seine Änderung erhalten.
+
+Markdown wird ohne Roh-HTML dargestellt: `<script>` und Co. erscheinen als Text, Links nur mit
+`http(s):` oder `mailto:`.
+
+### API
+
+Alle Endpunkte unter `/api`, Antworten als JSON, Fehler als `{ error, message }`.
+
+| Methode und Pfad | Zweck |
+|---|---|
+| `GET /config` | Inhalt von `board.config.json` |
+| `GET /tickets?q=&status=&type=&priority=&assignee=&label=&backlog=true\|false` | Liste, sortiert nach Rang |
+| `POST /tickets` | anlegen: `{ title, description?, status?, type?, priority?, assignee?, labels?, backlog? }` |
+| `GET /tickets/:key` | Ticket mit Beschreibung, Kommentaren und Verknüpfungen |
+| `PATCH /tickets/:key` | Felder ändern, nur die mitgeschickten |
+| `DELETE /tickets/:key` | löschen, mit Kommentaren und Verknüpfungen |
+| `POST /tickets/:key/move` | `{ status?, backlog?, beforeKey? }`: Spalte wechseln und einreihen |
+| `POST /tickets/:key/comments` | `{ author, body }`, `author` aus der Liste der Zuständigen |
+| `PATCH` / `DELETE /comments/:id` | Kommentar ändern oder löschen |
+| `POST /tickets/:key/links` | `{ type, target, direction? }`: `outward` = `key` *Art* `target` |
+| `DELETE /links/:id` | Verknüpfung entfernen |
+| `GET /usage` | Nutzungslimits (siehe unten) |
+
+Unbekannte Felder und Werte außerhalb von `board.config.json` werden mit 400 abgewiesen, damit
+ein Tippfehler auffällt statt still verloren zu gehen.
+
+Die API lauscht nur auf 127.0.0.1 und hat keine Authentifizierung.
 
 ## Nutzungslimits
 
@@ -58,62 +96,11 @@ Zwei Eigenheiten des Endpunkts, die im Code berücksichtigt sind:
 Zusätzlich liefert der Endpunkt `seven_day_breakdown`: die Aufteilung des Wochenfensters auf
 Claude Code, Chats und Cowork. Das Panel zeigt sie unter den beiden Balken.
 
-## Implementierer starten
-
-Jedes Ticket mit Label `umsetzung` in `To Do`, `Ready for implementation` oder `In Progress`
-hat den Knopf „An Implementierer übergeben". Der Klick tut zwei Dinge:
-
-1. **Jira vorbereiten** — das Ticket wird dem eigenen Konto zugewiesen und, falls es noch in
-   `To Do` steht, nach `Ready for implementation` gezogen. Das Label wird nicht gesetzt: Es ist
-   die Rollenzuordnung des Game-Designers, Tickets anderer Rollen werden abgewiesen.
-2. **Claude-CLI starten** — der Server ruft `claude -p --agent implementer` im Emperor-Ordner
-   (`EMPEROR_DIR`) auf. Die Sitzung läuft damit selbst als der Agent aus `.claude/agents/`,
-   statt die Arbeit an einen Unteragenten zu delegieren: Nur so tauchen seine Schritte im
-   Ereignisstrom auf, sonst wäre dazwischen minutenlang Stille.
-
-Der Server liest diesen Strom (`--output-format stream-json`) zeilenweise mit und macht aus
-jedem Werkzeugaufruf eine lesbare Zeile. Das Panel „Implementierer" zeigt sie fortlaufend, am
-Ende das Ergebnis. Es läuft immer nur ein Lauf; die letzten 20 stehen in `data/runs.json` und
-überdauern einen Serverneustart, das Panel zeigt davon die neuesten fünf.
-
-### Antworten und weiterführen
-
-Ein Lauf mit `claude -p` endet, sobald der Agent seinen Zug beendet — auch wenn er dabei eine
-Frage stellt. Unter dem jeweils neuesten abgeschlossenen Lauf einer Sitzung steht deshalb ein
-Antwortfeld. Die Antwort startet `claude -p --resume <session-id>`: Der Agent macht mit vollem
-Kontext weiter, die Session-ID bleibt dieselbe, und der neue Lauf zeigt die Antwort obenan.
-Jira wird dabei nicht vorbereitet — das Ticket hat der Agent seit dem ersten Lauf in der Hand.
-
-Das Feld steht unter jedem abgeschlossenen Lauf, nicht nur unter Rückfragen: Ob die letzte
-Nachricht eine Frage war, lässt sich nicht verlässlich erkennen, und so lässt sich auch nach
-einem erfolgreichen Lauf noch etwas nachschieben.
-
-Die Session-ID wird Teil der Befehlszeile. Der Endpunkt akzeptiert deshalb nur das exakte
-UUID-Format und nur IDs, zu denen es im Verlauf bereits einen Lauf gibt. Die Antwort selbst geht
-über die Standardeingabe.
-
-Voraussetzungen auf dem Rechner, auf dem der Server läuft:
-
-- lokaler Klon von `DaVudu/Emperor`, Pfad in `EMPEROR_DIR`
-- `npm install -g @anthropic-ai/claude-code`
-- einmal interaktiv `claude` im Emperor-Ordner starten: `/login` mit dem claude.ai-Abo-Konto,
-  `/mcp` für die Atlassian-Anmeldung. Die Läufe vom Dashboard aus nutzen diese Anmeldungen.
-
-Berechtigungsanfragen kann während eines Laufs niemand beantworten, deshalb bekommt er die
-Werkzeuge aus `IMPLEMENTER_ALLOWED_TOOLS` vorab freigegeben. Bricht ein Lauf mit
-Berechtigungsfehlern ab, steht das fehlende Werkzeug in der Fehlermeldung im Panel. Inhaltliche
-Rückfragen dagegen lassen sich über das Antwortfeld beantworten (siehe oben).
-
-Der Verlauf liegt in `data/runs.json`; ein Neustart des Servers beendet einen laufenden Lauf
-nicht, verliert aber die Verbindung zu ihm — der Jira-Status bleibt in dem Fall die Wahrheit.
-
 ## Einrichtung auf einem anderen Rechner
 
-1. Archiv entpacken, `npm install` ausführen (Node 18 oder neuer; Vite ist auf Version 5
-   festgelegt, damit es unter Node 18 läuft).
-2. `.env.example` nach `.env` kopieren und ein **neues** Jira-API-Token eintragen, statt das
-   alte mitzunehmen. Das alte danach unter
-   https://id.atlassian.com/manage-profile/security/api-tokens widerrufen.
+1. Archiv entpacken, `npm install` ausführen (Node 22.5 oder neuer).
+2. `data/board.db` mitnehmen — darin stehen alle Tickets. Vorher den Server beenden, damit die
+   Datei vollständig geschrieben ist.
 3. Den Snapshot-Task neu anlegen — er ist an den Rechner gebunden und wandert nicht mit.
    In einer Claude-Code-Session im Projektordner genügt die Bitte, einen geplanten Task mit
    dem Prompt unten und dem Zeitplan `0 */2 * * *` anzulegen. Die Pfade darin an den neuen

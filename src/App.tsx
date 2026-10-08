@@ -1,66 +1,68 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import UsagePanel from './components/UsagePanel';
-import TicketBoard from './components/TicketBoard';
-import RunPanel from './components/RunPanel';
+import TicketBoard, { type Drop } from './components/TicketBoard';
+import Backlog from './components/Backlog';
+import TicketDialog from './components/TicketDialog';
+import { matches } from './components/Labels';
+import { api, request } from './api';
 import { relativeFromNow } from './format';
-import type { ApiError, BoardColumn, RunState, Ticket, TicketResponse, UsageSnapshot } from './types';
+import type { BoardConfig, Ticket, TicketList, UsageSnapshot } from './types';
 
 const REFRESH_MS = 60_000;
-const REFRESH_WHILE_RUNNING_MS = 10_000;
 
-async function request<T>(url: string, init?: RequestInit): Promise<{ data: T | null; error: string | null }> {
-  try {
-    const response = await fetch(url, init);
-    const body = await response.json();
-    if (!response.ok) return { data: null, error: (body as ApiError).message };
-    return { data: body as T, error: null };
-  } catch (error) {
-    return { data: null, error: (error as Error).message };
-  }
+type View = 'board' | 'backlog';
+// undefined = kein Dialog, null = neues Ticket, sonst Schluessel des geoeffneten Tickets
+type Dialog = string | null | undefined;
+
+// Das geoeffnete Ticket steht im Hash (#EMP-12), damit sich ein Link darauf teilen laesst.
+function keyFromHash() {
+  const key = decodeURIComponent(window.location.hash.slice(1)).toUpperCase();
+  return /^[A-Z][A-Z0-9]*-\d+$/.test(key) ? key : undefined;
 }
 
 export default function App() {
-  const [columns, setColumns] = useState<BoardColumn[]>([]);
+  const [config, setConfig] = useState<BoardConfig | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [ticketError, setTicketError] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
-  const [runs, setRuns] = useState<RunState | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [view, setView] = useState<View>('board');
+  const [query, setQuery] = useState('');
+  const [dialog, setDialog] = useState<Dialog>(keyFromHash);
 
-  const refresh = useCallback(async () => {
-    const [ticketResult, usageResult, runResult] = await Promise.all([
-      request<TicketResponse>('/api/tickets'),
-      request<UsageSnapshot>('/api/usage'),
-      request<RunState>('/api/runs'),
-    ]);
-
-    if (ticketResult.data) {
-      setColumns(ticketResult.data.columns);
-      setTickets(ticketResult.data.tickets);
-      setFetchedAt(ticketResult.data.fetchedAt);
+  const loadTickets = useCallback(async () => {
+    const result = await request<TicketList>('/api/tickets');
+    if (result.data) {
+      setTickets(result.data.tickets);
+      setFetchedAt(result.data.fetchedAt);
     }
-    setTicketError(ticketResult.error);
-
-    if (usageResult.data) setUsage(usageResult.data);
-    setUsageError(usageResult.error);
-
-    if (runResult.data) setRuns(runResult.data);
-    setRunError(runResult.error);
+    setTicketError(result.error);
   }, []);
 
-  const running = runs?.current !== null && runs?.current !== undefined;
+  const refresh = useCallback(async () => {
+    const [, usageResult] = await Promise.all([loadTickets(), request<UsageSnapshot>('/api/usage')]);
+    if (usageResult.data) setUsage(usageResult.data);
+    setUsageError(usageResult.error);
+  }, [loadTickets]);
+
+  useEffect(() => {
+    request<BoardConfig>('/api/config').then((r) => {
+      setConfig(r.data);
+      setConfigError(r.error);
+    });
+  }, []);
 
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, running ? REFRESH_WHILE_RUNNING_MS : REFRESH_MS);
+    const timer = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [refresh, running]);
+  }, [refresh]);
 
   // Browser drosseln Timer in Hintergrund-Tabs; ohne das hier stehen nach längerer
-  // Abwesenheit bis zum nächsten Tick alte Zahlen da.
+  // Abwesenheit bis zum nächsten Tick alte Daten da.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh();
@@ -69,92 +71,121 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [refresh]);
 
-  const implement = useCallback(
-    async (key: string) => {
-      setActionError(null);
-      const result = await request<{ steps: string[] }>(`/api/tickets/${key}/implement`, { method: 'POST' });
-      if (result.error) setActionError(`${key}: ${result.error}`);
-      await refresh();
-    },
-    [refresh],
-  );
+  useEffect(() => {
+    const onHash = () => setDialog(keyFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
-  // Die Karte wandert sofort; der anschließende Refresh holt bei einem Fehler den echten Stand zurück.
+  const openTicket = useCallback((key: string) => {
+    window.location.hash = key;
+    setDialog(key);
+  }, []);
+
+  const closeDialog = useCallback(() => {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    setDialog(undefined);
+  }, []);
+
   const move = useCallback(
-    async (key: string, column: BoardColumn) => {
-      const statusId = column.statusIds[0];
+    async (key: string, body: { status?: string; backlog?: boolean; beforeKey?: string | null }) => {
       setActionError(null);
-      setTickets((current) =>
-        current.map((t) =>
-          t.key === key ? { ...t, statusId, status: column.name, statusCategory: column.category } : t,
-        ),
-      );
-      const result = await request<{ key: string }>(`/api/tickets/${key}/transition`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ statusId }),
-      });
+      const result = await api.post(`/api/tickets/${key}/move`, { ...body, beforeKey: body.beforeKey ?? undefined });
       if (result.error) setActionError(`${key}: ${result.error}`);
-      await refresh();
+      await loadTickets();
     },
-    [refresh],
+    [loadTickets],
   );
 
-  const reply = useCallback(
-    async (sessionId: string, text: string) => {
-      const result = await request<{ run: unknown }>(`/api/runs/${sessionId}/reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      await refresh();
-      return result.error;
+  // Die Karte wandert sofort; der anschließende Abruf holt bei einem Fehler den echten Stand zurück.
+  const moveOnBoard = useCallback(
+    (key: string, drop: Drop) => {
+      setTickets((current) => current.map((t) => (t.key === key ? { ...t, status: drop.status } : t)));
+      move(key, { status: drop.status, beforeKey: drop.beforeKey });
     },
-    [refresh],
+    [move],
   );
 
-  const removeRun = useCallback(
-    async (startedAt: string) => {
-      const result = await request<{ removed: string }>(`/api/runs/${encodeURIComponent(startedAt)}`, {
-        method: 'DELETE',
-      });
-      await refresh();
-      return result.error;
-    },
-    [refresh],
-  );
+  const visible = useMemo(() => tickets.filter((t) => matches(t, query)), [tickets, query]);
+  const onBoard = visible.filter((t) => !t.backlog);
+  const inBacklog = visible.filter((t) => t.backlog);
+
+  // Tickets mit einem Status, den board.config.json nicht (mehr) kennt, haetten keine Spalte.
+  const orphaned = config
+    ? onBoard.filter((t) => !config.statuses.some((s) => s.name === t.status)).map((t) => `${t.key} (${t.status})`)
+    : [];
 
   return (
     <main>
       <header className="page-head">
         <div>
           <h1>Ticket Board</h1>
-          <p className="muted">Projekt Emperor (EMP)</p>
+          <p className="muted">{config ? `Projekt ${config.projectName} (${config.projectKey})` : ' '}</p>
         </div>
-        <button type="button" onClick={refresh}>
-          Aktualisieren
-        </button>
+        <div className="head-actions">
+          <input
+            type="search"
+            className="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Suchen: Schlüssel, Titel, Label"
+          />
+          <button type="button" className="primary" onClick={() => setDialog(null)} disabled={!config}>
+            Neues Ticket
+          </button>
+          <button type="button" onClick={refresh}>
+            Aktualisieren
+          </button>
+        </div>
       </header>
 
       <UsagePanel snapshot={usage} error={usageError} />
 
-      <RunPanel state={runs} error={runError} onReply={reply} onRemove={removeRun} />
-
       <section className="panel">
         <div className="panel-head">
-          <h2>Tickets</h2>
+          <div className="tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={view === 'board'} className={view === 'board' ? 'tab active' : 'tab'} onClick={() => setView('board')}>
+              Board <span className="count">{onBoard.length}</span>
+            </button>
+            <button type="button" role="tab" aria-selected={view === 'backlog'} className={view === 'backlog' ? 'tab active' : 'tab'} onClick={() => setView('backlog')}>
+              Backlog <span className="count">{inBacklog.length}</span>
+            </button>
+          </div>
           {fetchedAt && <span className="stamp">Abgerufen {relativeFromNow(fetchedAt)}</span>}
         </div>
+
+        {configError && <p className="notice">Konfiguration nicht geladen: {configError}</p>}
+        {ticketError && <p className="notice">{ticketError}</p>}
         {actionError && <p className="notice">{actionError}</p>}
-        <TicketBoard
-          columns={columns}
-          tickets={tickets}
-          error={ticketError}
-          activeRunKey={runs?.current?.key ?? null}
-          onImplement={implement}
-          onMove={move}
-        />
+        {view === 'board' && orphaned.length > 0 && (
+          <p className="notice">Ohne Spalte, Status fehlt in board.config.json: {orphaned.join(', ')}</p>
+        )}
+
+        {config &&
+          (view === 'board' ? (
+            <TicketBoard config={config} tickets={onBoard} onOpen={openTicket} onMove={moveOnBoard} />
+          ) : (
+            <Backlog
+              tickets={inBacklog}
+              onOpen={openTicket}
+              onReorder={(key, beforeKey) => move(key, { backlog: true, beforeKey })}
+              onToBoard={(key) => move(key, { backlog: false })}
+            />
+          ))}
       </section>
+
+      {config && dialog !== undefined && (
+        <TicketDialog
+          key={dialog ?? 'new'}
+          config={config}
+          ticketKey={dialog}
+          tickets={tickets}
+          defaultBacklog={view === 'backlog'}
+          onOpen={openTicket}
+          onClose={closeDialog}
+          onChanged={loadTickets}
+        />
+      )}
     </main>
   );
 }

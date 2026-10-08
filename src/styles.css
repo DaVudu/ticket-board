@@ -228,7 +228,7 @@ button:not(:disabled):hover {
   color: var(--text-muted);
 }
 
-/* --cols setzt TicketBoard aus der Spaltenzahl des Jira-Boards. minmax(0, …) erlaubt den
+/* --cols setzt TicketBoard aus der Zahl der Status in board.config.json. minmax(0, …) erlaubt den
    Spalten, schmaler als ihr Inhalt zu werden, statt umzubrechen. */
 .board {
   display: grid;
@@ -351,8 +351,12 @@ button:not(:disabled):hover {
   color: var(--text-muted);
 }
 
-.card[draggable='true'] {
-  cursor: grab;
+.card {
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: var(--text-muted);
 }
 
 .card.dragging {
@@ -371,28 +375,340 @@ button:not(:disabled):hover {
   background: color-mix(in srgb, var(--label-color) 15%, transparent);
 }
 
-.card-active {
+/* Einfuegemarke beim Ziehen: Das gezogene Ticket landet vor dieser Karte bzw. Zeile. */
+.insert-before {
+  box-shadow: 0 -3px 0 0 var(--accent);
+}
+
+.card-blocked {
+  border-left: 3px solid var(--critical);
+}
+
+.blocked-note {
+  margin: 0;
+  font-size: 12px;
+  color: #ffb4ae;
+}
+
+.empty {
+  padding: 4px 2px;
+}
+
+/* --- Kopf, Suche, Knoepfe ------------------------------------------------------------------ */
+
+.head-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+input,
+select,
+textarea {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 14px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
 }
 
-.card-action {
-  align-self: stretch;
-  margin-top: 2px;
-  padding: 6px 12px;
-  font-size: 13px;
+.search {
+  width: 260px;
 }
 
-.card-action:disabled {
+button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.stamp.live {
-  color: var(--accent);
+button.primary {
+  background: var(--accent);
+  color: #fff;
 }
 
-.runs {
+button.primary:not(:disabled):hover {
+  background: #6f9cf2;
+}
+
+button.danger {
+  background: rgba(248, 81, 73, 0.1);
+  border-color: rgba(248, 81, 73, 0.5);
+  color: #ffb4ae;
+}
+
+button.danger:not(:disabled):hover {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+/* Textknopf ohne Rahmen, etwa "Bearbeiten" oder ein Ticketschluessel. Spezifischer als
+   button:not(:disabled):hover, damit kein Hintergrund erscheint. */
+button.link-button,
+button.icon-button {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  color: var(--accent-text);
+  font-size: 13px;
+}
+
+button.link-button:not(:disabled):hover,
+button.icon-button:not(:disabled):hover {
+  background: none;
+  text-decoration: underline;
+}
+
+button.icon-button {
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+button.icon-button:not(:disabled):hover {
+  color: var(--critical);
+  text-decoration: none;
+}
+
+button.danger-text {
+  color: #ffb4ae;
+}
+
+.small-button {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* --- Tabs ----------------------------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+button.tab {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+button.tab.active {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+button.tab:not(:disabled):hover {
+  background: var(--surface-2);
+}
+
+/* --- Backlog -------------------------------------------------------------------------------- */
+
+.backlog {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backlog-row {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) auto 70px 70px 110px 170px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.backlog-row:hover {
+  border-color: var(--text-muted);
+}
+
+.backlog-row.dragging {
+  opacity: 0.4;
+}
+
+.backlog-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlog-labels {
+  display: flex;
+  gap: 4px;
+}
+
+/* --- Dialog --------------------------------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 16px;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.dialog {
+  width: min(860px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.dialog-head .stamp {
+  flex: 1;
+}
+
+.ticket-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.title-input {
+  font-size: 18px;
+  font-weight: 600;
+  padding: 9px 12px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.field-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.field-grid label.wide {
+  grid-column: span 3;
+}
+
+.field-grid label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  padding-bottom: 8px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.description-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 160px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+}
+
+.inline-form input {
+  flex: 1;
+}
+
+.links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.links li {
+  display: grid;
+  grid-template-columns: 150px auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.link-label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.link-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-title.done {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.comments {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -401,180 +717,105 @@ button:not(:disabled):hover {
   gap: 10px;
 }
 
-.run {
+.comment {
+  background: var(--surface-2);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--cat-new);
   border-radius: 8px;
   padding: 10px 12px;
+}
+
+.comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.comment-form {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.run-running {
-  border-left-color: var(--accent);
-}
-
-.run-succeeded {
-  border-left-color: var(--ok);
-}
-
-.run-failed {
-  border-left-color: var(--critical);
-}
-
-.run-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.run-key {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--accent);
-}
-
-.run-status {
-  font-size: 13px;
-}
-
-.run-remove {
-  margin-left: auto;
-  padding: 0 6px;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-/* Spezifischer als button:not(:disabled):hover, damit das × ohne Hintergrund bleibt. */
-.run-remove:not(:disabled):hover {
-  background: none;
-  color: var(--critical);
-}
-
-.run-remove:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.steps {
-  list-style: none;
-  margin: 0;
-  padding: 8px 10px;
-  background: var(--bg);
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  max-height: 200px;
-  overflow-y: auto;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.step {
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.step-tool::before {
-  content: '› ';
-  color: var(--accent);
-}
-
-.step-text {
-  color: var(--text);
-}
-
-.step-text::before {
-  content: '· ';
-  color: var(--text-muted);
-}
-
-.run-reply {
-  margin: 0;
-  padding: 8px 10px;
-  border-left: 2px solid var(--accent);
-  background: var(--bg);
-  border-radius: 0 6px 6px 0;
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.run-reply-label {
-  display: block;
-  font-size: 11px;
-  color: var(--accent);
-  margin-bottom: 2px;
-}
-
-.reply-form {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.reply-form textarea {
+.comment-form textarea {
   width: 100%;
   resize: vertical;
-  min-height: 52px;
-  padding: 8px 10px;
+}
+
+/* --- Markdown ------------------------------------------------------------------------------- */
+
+.markdown {
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown pre,
+.markdown blockquote,
+.markdown table {
+  margin: 0 0 10px;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 14px 0 8px;
+  font-size: 15px;
+}
+
+.markdown a {
+  color: var(--accent-text);
+}
+
+.markdown code {
   background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 13px;
+}
+
+.markdown pre {
+  background: var(--bg);
   border-radius: 6px;
-  font: inherit;
-  font-size: 13px;
-}
-
-.reply-form textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.reply-actions {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 10px;
-}
-
-.reply-actions button {
-  padding: 6px 12px;
-  font-size: 13px;
-}
-
-.reply-actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.reply-error {
-  font-size: 12px;
-  color: #ffb4ae;
-}
-
-.run-output {
-  margin: 0;
   padding: 10px;
-  background: var(--bg);
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 240px;
-  overflow: auto;
+  overflow-x: auto;
 }
 
-.run-error {
-  color: #ffb4ae;
+.markdown pre code {
+  padding: 0;
+}
+
+.markdown blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  color: var(--text-muted);
+}
+
+.markdown table {
+  border-collapse: collapse;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+.description {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 12px 14px;
 }

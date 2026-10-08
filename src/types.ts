@@ -1,27 +1,70 @@
+export type StatusCategory = 'new' | 'indeterminate' | 'done';
+
+export type BoardConfig = {
+  projectKey: string;
+  projectName: string;
+  statuses: { name: string; category: StatusCategory }[];
+  types: string[];
+  priorities: string[];
+  defaultType: string;
+  defaultPriority: string;
+  assignees: string[];
+  linkTypes: { id: string; outward: string; inward: string }[];
+};
+
 export type Ticket = {
   key: string;
-  summary: string;
+  title: string;
   status: string;
-  statusId: string | null;
-  statusCategory: 'new' | 'indeterminate' | 'done' | string;
+  statusCategory: StatusCategory;
   type: string;
   priority: string;
-  labels: string[];
   assignee: string | null;
-  updated: string;
-  dueDate: string | null;
-  url: string;
+  labels: string[];
+  backlog: boolean;
+  rank: number;
+  // Offene Blocker: Tickets, die dieses blockieren und noch nicht erledigt sind.
+  blockedBy: string[];
+  commentCount: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
-export type BoardColumn = {
-  name: string;
-  statusIds: string[];
-  category: 'new' | 'indeterminate' | 'done' | string;
+export type Comment = {
+  id: number;
+  author: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
-export type TicketResponse = {
+export type Link = {
+  id: number;
+  type: string;
+  direction: 'outward' | 'inward';
+  label: string;
+  ticket: { key: string; title: string; status: string; statusCategory: StatusCategory };
+};
+
+export type TicketDetail = Ticket & {
+  description: string;
+  comments: Comment[];
+  links: Link[];
+};
+
+export type TicketFields = {
+  title: string;
+  description: string;
+  status: string;
+  type: string;
+  priority: string;
+  assignee: string | null;
+  labels: string[];
+  backlog: boolean;
+};
+
+export type TicketList = {
   fetchedAt: string;
-  columns: BoardColumn[];
   tickets: Ticket[];
 };
 
@@ -37,32 +80,4 @@ export type UsageSnapshot = {
   warning?: string;
   windows: UsageWindow[];
   breakdown?: { name: string; percent: number }[] | null;
-};
-
-export type RunStep = {
-  at: string;
-  kind: 'tool' | 'text';
-  label: string;
-};
-
-export type Run = {
-  key: string;
-  sessionId?: string | null;
-  reply?: string | null;
-  startedAt: string;
-  finishedAt: string | null;
-  status: 'running' | 'succeeded' | 'failed';
-  steps?: RunStep[];
-  result: string | null;
-  error: string | null;
-};
-
-export type RunState = {
-  current: Run | null;
-  history: Run[];
-};
-
-export type ApiError = {
-  error: string;
-  message: string;
 };

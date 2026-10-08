@@ -1,50 +1,32 @@
 import { useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
-import type { BoardColumn, Ticket } from '../types';
-import { formatDate, relativeFromNow } from '../format';
+import type { BoardConfig, Ticket } from '../types';
+import { relativeFromNow } from '../format';
+import { Labels } from './Labels';
 
-const STARTABLE = new Set(['To Do', 'Ready for implementation', 'In Progress']);
-const DRAG_TYPE = 'application/x-ticket-key';
-// Labels mit eigener Farbe (siehe .label-* in styles.css); alle anderen bleiben grau.
-const COLORED_LABELS = new Set(['design', 'umsetzung', 'test', 'grafik']);
+export const DRAG_TYPE = 'application/x-ticket-key';
 
-function labelClass(label: string) {
-  const name = label.toLowerCase();
-  return COLORED_LABELS.has(name) ? `label label-${name}` : 'label';
-}
+// Ziel eines Drops: Spalte (Status) und optional das Ticket, vor dem eingereiht wird.
+export type Drop = { status: string; beforeKey: string | null };
 
 type Props = {
-  columns: BoardColumn[];
+  config: BoardConfig;
   tickets: Ticket[];
-  error: string | null;
-  activeRunKey: string | null;
-  onImplement: (key: string) => void;
-  onMove: (key: string, column: BoardColumn) => void;
+  onOpen: (key: string) => void;
+  onMove: (key: string, drop: Drop) => void;
 };
 
 type CardProps = {
   ticket: Ticket;
-  activeRunKey: string | null;
   dragging: boolean;
-  onImplement: (key: string) => void;
+  insertBefore: boolean;
+  onOpen: (key: string) => void;
   onDragStart: (key: string) => void;
   onDragEnd: () => void;
+  onDragOverCard: (key: string) => void;
 };
 
-function ticketsIn(column: BoardColumn, tickets: Ticket[]) {
-  return tickets.filter((ticket) => ticket.statusId !== null && column.statusIds.includes(ticket.statusId));
-}
-
-function implementLabel(ticket: Ticket, activeRunKey: string | null) {
-  if (activeRunKey === ticket.key) return 'Läuft…';
-  if (activeRunKey) return 'Warten';
-  return 'An Implementierer übergeben';
-}
-
-function TicketCard({ ticket, activeRunKey, dragging, onImplement, onDragStart, onDragEnd }: CardProps) {
-  // Während der Implementierer am Ticket arbeitet, gehört der Status ihm.
-  const movable = activeRunKey !== ticket.key;
-
+function TicketCard({ ticket, dragging, insertBefore, onOpen, onDragStart, onDragEnd, onDragOverCard }: CardProps) {
   const startDrag = (event: DragEvent) => {
     event.dataTransfer.setData(DRAG_TYPE, ticket.key);
     event.dataTransfer.effectAllowed = 'move';
@@ -53,107 +35,100 @@ function TicketCard({ ticket, activeRunKey, dragging, onImplement, onDragStart, 
 
   return (
     <li
-      className={`card ${activeRunKey === ticket.key ? 'card-active' : ''} ${dragging ? 'dragging' : ''}`}
-      draggable={movable}
-      onDragStart={movable ? startDrag : undefined}
+      className={`card ${dragging ? 'dragging' : ''} ${insertBefore ? 'insert-before' : ''} ${ticket.blockedBy.length ? 'card-blocked' : ''}`}
+      draggable
+      onDragStart={startDrag}
       onDragEnd={onDragEnd}
+      onDragOver={() => onDragOverCard(ticket.key)}
+      onClick={() => onOpen(ticket.key)}
     >
       <div className="card-top">
-        <a className="card-key" href={ticket.url} target="_blank" rel="noreferrer" draggable={false}>
-          {ticket.key}
-        </a>
-        {ticket.labels.map((label) => (
-          <span key={label} className={labelClass(label)}>{label}</span>
-        ))}
+        <span className="card-key">{ticket.key}</span>
+        <Labels labels={ticket.labels} />
       </div>
-      <p className="card-summary" title={ticket.summary}>{ticket.summary}</p>
+      <p className="card-summary" title={ticket.title}>
+        {ticket.title}
+      </p>
       <div className="card-meta">
         <span>{ticket.type}</span>
         <span>{ticket.priority}</span>
         <span>{ticket.assignee ?? 'Nicht zugewiesen'}</span>
       </div>
-      <div className="card-meta muted small">
-        <span>Aktualisiert {relativeFromNow(ticket.updated)}</span>
-        {ticket.dueDate && <span>Fällig {formatDate(ticket.dueDate)}</span>}
-      </div>
-      {STARTABLE.has(ticket.status) && ticket.labels.includes('umsetzung') && (
-        <button
-          type="button"
-          className="card-action"
-          disabled={activeRunKey !== null}
-          onClick={() => onImplement(ticket.key)}
-        >
-          {implementLabel(ticket, activeRunKey)}
-        </button>
+      {ticket.blockedBy.length > 0 && (
+        <p className="blocked-note">Blockiert von {ticket.blockedBy.join(', ')}</p>
       )}
+      <div className="card-meta muted small">
+        <span>Aktualisiert {relativeFromNow(ticket.updatedAt)}</span>
+        {ticket.commentCount > 0 && (
+          <span>
+            {ticket.commentCount} {ticket.commentCount === 1 ? 'Kommentar' : 'Kommentare'}
+          </span>
+        )}
+      </div>
     </li>
   );
 }
 
-export default function TicketBoard({ columns, tickets, error, activeRunKey, onImplement, onMove }: Props) {
+export default function TicketBoard({ config, tickets, onOpen, onMove }: Props) {
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
-
-  if (error) return <p className="notice">{error}</p>;
-  if (!columns.length) return <p className="muted">Keine Spalten im Board.</p>;
-
-  const dragged = tickets.find((t) => t.key === draggedKey) ?? null;
-  const accepts = (column: BoardColumn) =>
-    dragged !== null && dragged.statusId !== null && !column.statusIds.includes(dragged.statusId);
+  const [drop, setDrop] = useState<Drop | null>(null);
 
   const endDrag = () => {
     setDraggedKey(null);
-    setDropTarget(null);
+    setDrop(null);
   };
 
-  // Alle Spalten des Boards stehen immer nebeneinander, auch leere.
+  // Alle Spalten aus board.config.json stehen immer nebeneinander, auch leere.
   return (
-    <div className="board" style={{ '--cols': columns.length } as CSSProperties}>
-      {columns.map((column) => {
-        const items = ticketsIn(column, tickets);
+    <div className="board" style={{ '--cols': config.statuses.length } as CSSProperties}>
+      {config.statuses.map((status) => {
+        const items = tickets.filter((t) => t.status === status.name);
+        const isTarget = drop?.status === status.name;
+
         return (
           <section
-            key={column.name}
-            className={`column cat-${column.category} ${dropTarget === column.name ? 'drop-target' : ''}`}
+            key={status.name}
+            className={`column cat-${status.category} ${isTarget ? 'drop-target' : ''}`}
             onDragOver={(event) => {
-              if (!accepts(column)) return;
+              if (!draggedKey) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = 'move';
-              setDropTarget(column.name);
+              // Ueber einer Karte setzt die Karte beforeKey; ueber leerer Flaeche ans Ende.
+              const overCard = (event.target as HTMLElement).closest('.card');
+              if (!overCard) setDrop({ status: status.name, beforeKey: null });
             }}
             onDragLeave={(event) => {
               // dragleave feuert auch beim Wechsel auf ein Kindelement der Spalte.
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
             }}
             onDrop={(event) => {
               event.preventDefault();
               const key = event.dataTransfer.getData(DRAG_TYPE);
-              if (key && accepts(column)) onMove(key, column);
+              const target = drop ?? { status: status.name, beforeKey: null };
+              if (key && target.beforeKey !== key) onMove(key, target);
               endDrag();
             }}
           >
             <header className="column-head">
-              <h3 title={column.name}>{column.name}</h3>
+              <h3 title={status.name}>{status.name}</h3>
               <span className="count">{items.length}</span>
             </header>
 
-            {items.length ? (
-              <ul className="cards">
-                {items.map((ticket) => (
-                  <TicketCard
-                    key={ticket.key}
-                    ticket={ticket}
-                    activeRunKey={activeRunKey}
-                    dragging={draggedKey === ticket.key}
-                    onImplement={onImplement}
-                    onDragStart={setDraggedKey}
-                    onDragEnd={endDrag}
-                  />
-                ))}
-              </ul>
-            ) : (
-              <p className="muted small">Keine Tickets</p>
-            )}
+            <ul className="cards">
+              {items.map((ticket) => (
+                <TicketCard
+                  key={ticket.key}
+                  ticket={ticket}
+                  dragging={draggedKey === ticket.key}
+                  insertBefore={isTarget && drop?.beforeKey === ticket.key && draggedKey !== ticket.key}
+                  onOpen={onOpen}
+                  onDragStart={setDraggedKey}
+                  onDragEnd={endDrag}
+                  onDragOverCard={(key) => setDrop({ status: status.name, beforeKey: key })}
+                />
+              ))}
+              {!items.length && <li className="muted small empty">Keine Tickets</li>}
+            </ul>
           </section>
         );
       })}
