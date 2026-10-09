@@ -15,7 +15,7 @@ export class StoreError extends Error {
 
 const invalid = (message) => new StoreError(400, message);
 
-const SCHEMA = `
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

@@ -109,6 +109,24 @@ Eintrag in `.mcp.json` des Projekts:
 Den Pfad zu `node` absolut angeben: Bei einem Befehl über SSH liest die Shell `~/.bashrc` nicht
 zu Ende, `~/.local/bin` steht dann nicht im `PATH`.
 
+### Import aus Jira
+
+Bis zum Umstieg läuft Jira weiter. Der Import lässt sich deshalb beliebig oft wiederholen:
+
+```bash
+python3 scripts/export-jira.py data/jira-export.json   # liest nur, Zugang aus ~/.config/jira/emperor.env
+node server/import-jira.js data/jira-export.json --replace   # schreibt data/board.db neu
+```
+
+- Schlüssel bleiben gleich (EMP-44 bleibt EMP-44), neue Tickets zählen nach dem höchsten weiter.
+- Reihenfolge nach dem Jira-Rang, Zeitstempel aus Jira.
+- Offene Tickets (Status der Kategorie `new`) landen im Backlog, alle anderen auf dem Board.
+- In Jira stehen alle Kommentare unter Viktors Konto. Der Autor wird aus der ersten Zeile
+  erraten (`guessAuthor` in `server/import-jira.js`, z. B. „Prüfung …“ → tester, „Umgesetzt …“ →
+  implementer bzw. artist bei reinen Grafiktickets); ohne Treffer bleibt es Viktor.
+- `--replace` ersetzt eine vorhandene Datenbank komplett, auch Änderungen, die seitdem im Board
+  gemacht wurden. Vorher die API stoppen, die auf dieser Datenbank läuft.
+
 ## Nutzungslimits
 
 Die 5-Stunden- und Wochenwerte kommen von `GET https://api.anthropic.com/api/oauth/usage`.
