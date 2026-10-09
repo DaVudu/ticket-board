@@ -1,0 +1,18 @@
+[Unit]
+Description=Ticket-Board (Emperor): API und Oberflaeche auf 127.0.0.1:8787
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/vudu/apps/ticket-board
+ExecStart=/home/vudu/.local/bin/node server/index.js
+Environment=NODE_ENV=production
+Environment=API_PORT=8787
+Environment=BOARD_DB=/home/vudu/apps/ticket-board/data/board.db
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Ticket-Board: Sicherung der Datenbank
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/vudu/apps/ticket-board
+ExecStart=/home/vudu/.local/bin/node scripts/backup.mjs taeglich
+Environment=BOARD_DB=/home/vudu/apps/ticket-board/data/board.db

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import express from 'express';
@@ -88,6 +89,17 @@ app.use((error, _req, res, next) => {
   }
   next(error);
 });
+
+// Unbekannte API-Pfade als JSON-404, nicht als Oberflaeche.
+app.use('/api', (_req, res) => res.status(404).json({ error: 'not_found', message: 'Unbekannter API-Pfad.' }));
+
+// Betrieb: Die gebaute Oberflaeche (npm run build) kommt vom selben Server. In der Entwicklung
+// gibt es kein dist/, dann liefert Vite die Oberflaeche.
+const dist = path.join(root, 'dist');
+if (existsSync(path.join(dist, 'index.html'))) {
+  app.use(express.static(dist));
+  app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+}
 
 await initUsage(path.join(root, 'data', 'usage-cache.json'));
 

@@ -1,5 +1,5 @@
 // MCP-Server fuer das Ticket-Board (stdio). Die Agenten auf dem PC starten ihn per
-//   ssh vudu@<pi> node /home/vudu/projects/ticket-board/server/mcp.js
+//   ssh vudu@<pi> /home/vudu/.local/bin/node /home/vudu/apps/ticket-board/server/mcp.js
 // Er schreibt nicht selbst in die Datenbank, sondern geht ueber die REST-API: Die API bleibt der
 // einzige Schreiber, ihre Pruefungen (Status, Zustaendige, unbekannte Felder) gelten auch hier.
 // Loeschen ist absichtlich nicht dabei; das macht Viktor in der Oberflaeche.

@@ -1,17 +1,23 @@
 # Ticket Board
 
-Ticket-Board für das Projekt **Emperor (EMP)** mit den Claude-Nutzungslimits. Es ersetzt das
-Jira-Board: Tickets werden hier angelegt, bearbeitet und verschoben und liegen lokal in SQLite.
+Ticket-Board für das Projekt **Emperor (EMP)** mit den Claude-Nutzungslimits. Es hat Jira am
+09.10.2026 abgelöst: Tickets werden hier angelegt, bearbeitet und verschoben und liegen in SQLite.
+Es läuft auf dem Raspberry Pi (siehe „Betrieb auf dem Pi“); die Agenten greifen über den
+MCP-Server zu.
 
-## Start
+## Entwicklung
 
 ```bash
-npm install
-npm run dev
+npm install --include=dev
+cp ~/apps/ticket-board/data/board.db data/dev.db     # oder: node scripts/backup.mjs + Kopie
+BOARD_DB=data/dev.db API_PORT=8797 node server/index.js
+API_PORT=8797 ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-Frontend läuft auf http://localhost:5173, die API auf http://localhost:8787. Nötig ist
-**Node 22.5 oder neuer** (für `node:sqlite`).
+Entwickelt wird im Entwicklungsordner (`~/projects/ticket-board`) gegen `data/dev.db`, nie gegen
+die echte Datenbank. Die Oberfläche ist dann unter http://localhost:5173 erreichbar (Vite leitet
+`/api` an `API_PORT` weiter). Vite mit `--host 127.0.0.1`, sonst lauscht es nur auf `::1` und
+ein SSH-Tunnel auf 127.0.0.1 läuft ins Leere. Nötig ist **Node 22.5 oder neuer** (für `node:sqlite`).
 
 ## Tickets
 
@@ -99,7 +105,7 @@ Eintrag in `.mcp.json` des Projekts:
       "args": [
         "-i", "D:\\SSH\\ssh-pi5", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
         "vudu@192.168.178.81",
-        "/home/vudu/.local/bin/node /home/vudu/projects/ticket-board/server/mcp.js"
+        "/home/vudu/.local/bin/node /home/vudu/apps/ticket-board/server/mcp.js"
       ]
     }
   }
@@ -111,21 +117,19 @@ zu Ende, `~/.local/bin` steht dann nicht im `PATH`.
 
 ### Import aus Jira
 
-Bis zum Umstieg läuft Jira weiter. Der Import lässt sich deshalb beliebig oft wiederholen:
+Einmalig am 09.10.2026 erledigt (181 Tickets, 507 Kommentare). Seitdem ist das Board führend, ein
+erneuter Import würde alle Änderungen im Board überschreiben. Die Werkzeuge bleiben zum
+Nachvollziehen im Repo:
 
 ```bash
-python3 scripts/export-jira.py data/jira-export.json   # liest nur, Zugang aus ~/.config/jira/emperor.env
-node server/import-jira.js data/jira-export.json --replace   # schreibt data/board.db neu
+python3 scripts/export-jira.py data/jira-export.json        # liest nur
+node server/import-jira.js data/jira-export.json [ziel.db]  # nur in eine neue Datenbank
 ```
 
 - Schlüssel bleiben gleich (EMP-44 bleibt EMP-44), neue Tickets zählen nach dem höchsten weiter.
-- Reihenfolge nach dem Jira-Rang, Zeitstempel aus Jira.
-- Offene Tickets (Status der Kategorie `new`) landen im Backlog, alle anderen auf dem Board.
+- Reihenfolge nach dem Jira-Rang, Zeitstempel aus Jira; offene Tickets landen im Backlog.
 - In Jira stehen alle Kommentare unter Viktors Konto. Der Autor wird aus der ersten Zeile
-  erraten (`guessAuthor` in `server/import-jira.js`, z. B. „Prüfung …“ → tester, „Umgesetzt …“ →
-  implementer bzw. artist bei reinen Grafiktickets); ohne Treffer bleibt es Viktor.
-- `--replace` ersetzt eine vorhandene Datenbank komplett, auch Änderungen, die seitdem im Board
-  gemacht wurden. Vorher die API stoppen, die auf dieser Datenbank läuft.
+  erraten (`guessAuthor` in `server/import-jira.js`); ohne Treffer bleibt es Viktor.
 
 ## Nutzungslimits
 
@@ -154,24 +158,41 @@ Zwei Eigenheiten des Endpunkts, die im Code berücksichtigt sind:
 Zusätzlich liefert der Endpunkt `seven_day_breakdown`: die Aufteilung des Wochenfensters auf
 Claude Code, Chats und Cowork. Das Panel zeigt sie unter den beiden Balken.
 
-## Einrichtung auf einem anderen Rechner
+## Betrieb auf dem Pi
 
-1. Archiv entpacken, `npm install` ausführen (Node 22.5 oder neuer).
-2. `data/board.db` mitnehmen — darin stehen alle Tickets. Vorher den Server beenden, damit die
-   Datei vollständig geschrieben ist.
-3. Den Snapshot-Task neu anlegen — er ist an den Rechner gebunden und wandert nicht mit.
-   In einer Claude-Code-Session im Projektordner genügt die Bitte, einen geplanten Task mit
-   dem Prompt unten und dem Zeitplan `0 */2 * * *` anzulegen. Die Pfade darin an den neuen
-   Ort anpassen, falls das Projekt nicht unter `C:\Projects\Board` liegt.
+| | Betrieb | Entwicklung |
+|---|---|---|
+| Ordner | `~/apps/ticket-board` (Klon, immer `main`) | `~/projects/ticket-board` |
+| Datenbank | `~/apps/ticket-board/data/board.db` | `data/dev.db` |
+| Adresse | http://127.0.0.1:8787 (API und gebaute Oberfläche) | API 8797, Vite 5173 |
+| Start | systemd-User-Dienst `ticket-board.service` | von Hand |
 
-Prompt für den Task:
+Der Betriebsordner wird nie direkt bearbeitet. Eine Änderung kommt so hinein:
 
-> Lies die aktuellen Claude-Plan-Limits mit dem Tool `get_usage` des MCP-Servers
-> `ccd_session_mgmt` aus (Aufruf ohne Argumente, relevant ist nur der Abschnitt `plan`).
-> Überschreibe `C:\Projects\Board\data\usage.json` mit einem Objekt aus `plan` (z. B. "Pro")
-> und `windows`, einer Liste aus `{ label, percentUsed, resetsAt }`. Dabei wird das Fenster
-> "5-hour limit" zu "5-Stunden-Limit" und "Weekly · all models" zu
-> "Wochenlimit · alle Modelle"; weitere Fenster mit Originallabel anhängen. Schreibe **kein**
-> Feld `updatedAt` — den Zeitpunkt ermittelt der Server aus dem Dateizeitstempel, und die
-> aktuelle Uhrzeit ist dir nicht bekannt. Meldet `get_usage` den Status "unavailable" oder
-> "not_applicable", lass die Datei unverändert. Ändere keine anderen Dateien.
+1. Im Entwicklungsordner auf einem eigenen Branch umsetzen und gegen `dev.db` testen.
+2. Nach `main` mergen und pushen.
+3. Im Betriebsordner `scripts/deploy.sh`: sichert die Datenbank, holt `main`, baut und startet
+   den Dienst neu. Erst damit sehen auch die Agenten (MCP-Server) den neuen Stand.
+
+Ändert sich das Datenbankschema, braucht es eine Migration im Code: `CREATE TABLE IF NOT EXISTS`
+ergänzt keine Spalten in einer bestehenden Tabelle.
+
+**Sicherung:** `ticket-board-backup.timer` sichert täglich um 03:30 per `scripts/backup.mjs` nach
+`~/backups/ticket-board/` (14 Stände, mit Integritätsprüfung), `deploy.sh` zusätzlich vor jedem
+Update. Zurückspielen: Dienst stoppen, Sicherung nach `data/board.db` kopieren, `-wal`/`-shm`
+daneben löschen, Dienst starten.
+
+**Einrichtung** (einmalig, Unit-Dateien in `scripts/systemd/`):
+
+```bash
+git clone <repo> ~/apps/ticket-board && cd ~/apps/ticket-board
+npm ci --include=dev && npm run build
+cp scripts/systemd/* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ticket-board.service ticket-board-backup.timer
+```
+
+Damit der Dienst ohne Anmeldung nach einem Neustart des Pi läuft, muss Linger an sein
+(`loginctl show-user $USER -p Linger`).
+
+Logs: `journalctl --user -u ticket-board -f`.
