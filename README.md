@@ -69,6 +69,46 @@ ein Tippfehler auffällt statt still verloren zu gehen.
 
 Die API lauscht nur auf 127.0.0.1 und hat keine Authentifizierung.
 
+### MCP-Server für die Agenten
+
+`server/mcp.js` ist ein MCP-Server über stdio. Er schreibt nicht selbst in die Datenbank, sondern
+ruft die API auf (Standard `http://127.0.0.1:8787`, änderbar mit `BOARD_API_URL`). Die API muss
+also laufen. Werkzeuge:
+
+| Werkzeug | Zweck |
+|---|---|
+| `board_get_config` | gültige Status, Typen, Prioritäten, Zuständige, Verknüpfungsarten |
+| `board_search_tickets` | kompakte Liste, Filter `q`, `status`, `type`, `priority`, `assignee`, `label`, `backlog` |
+| `board_get_ticket` | Ticket mit Beschreibung, Kommentaren, Verknüpfungen |
+| `board_create_ticket` | anlegen, nur `title` ist Pflicht |
+| `board_update_ticket` | Felder ändern, nur die mitgeschickten |
+| `board_transition_ticket` | Status, Backlog und Position (`beforeKey`) |
+| `board_add_comment` | Kommentar mit `author` (Agentenname) |
+| `board_link_tickets` | `blocks` / `relates`, Richtung `outward` oder `inward` |
+
+Löschen gibt es absichtlich nicht; das geschieht in der Oberfläche.
+
+Die Agenten auf dem Windows-PC starten den Server per SSH, ein Tunnel ist dafür nicht nötig.
+Eintrag in `.mcp.json` des Projekts:
+
+```json
+{
+  "mcpServers": {
+    "board": {
+      "command": "ssh",
+      "args": [
+        "-i", "D:\\SSH\\ssh-pi5", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+        "vudu@192.168.178.81",
+        "/home/vudu/.local/bin/node /home/vudu/projects/ticket-board/server/mcp.js"
+      ]
+    }
+  }
+}
+```
+
+Den Pfad zu `node` absolut angeben: Bei einem Befehl über SSH liest die Shell `~/.bashrc` nicht
+zu Ende, `~/.local/bin` steht dann nicht im `PATH`.
+
 ## Nutzungslimits
 
 Die 5-Stunden- und Wochenwerte kommen von `GET https://api.anthropic.com/api/oauth/usage`.
