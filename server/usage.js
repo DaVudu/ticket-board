@@ -9,6 +9,12 @@ const ENDPOINT = 'https://api.anthropic.com/api/oauth/usage';
 // verdeckt den eigentlichen Fehler.
 const MIN_INTERVAL_MS = 120_000;
 
+// Nach einem 429 nicht im 2-Minuten-Takt nachfassen: jedes Nachfassen scheint die Sperre zu
+// verlaengern. Wartezeit 5 min nach dem ersten 429, je weiterem 429 um 5 min laenger, hoechstens
+// 60 min. Der naechste Erfolg setzt sie zurueck.
+const BACKOFF_STEP_MS = 5 * 60_000;
+const BACKOFF_MAX_MS = 60 * 60_000;
+
 const LABELS = {
   session: '5-Stunden-Limit',
   weekly_all: 'Wochenlimit · alle Modelle',
@@ -20,6 +26,12 @@ let cache = null;
 let lastAttemptAt = 0;
 let lastError = null;
 let cacheFile = null;
+let throttledCount = 0;
+
+function waitMs() {
+  if (throttledCount === 0) return MIN_INTERVAL_MS;
+  return Math.min(throttledCount * BACKOFF_STEP_MS, BACKOFF_MAX_MS);
+}
 
 // Ohne diesen Speicher fragt jeder Serverneustart sofort neu an — bei mehreren Neustarts
 // kurz hintereinander laeuft das zuverlaessig in die Drosselung.
@@ -30,6 +42,7 @@ export async function initUsage(file) {
     const stored = JSON.parse(await readFile(file, 'utf8'));
     lastAttemptAt = stored.lastAttemptAt ?? 0;
     cache = stored.cache ?? null;
+    throttledCount = stored.throttledCount ?? 0;
   } catch {
     // Kein Speicher vorhanden: der erste Abruf fuellt ihn.
   }
@@ -38,7 +51,7 @@ export async function initUsage(file) {
 async function persist() {
   if (!cacheFile) return;
   try {
-    await writeFile(cacheFile, JSON.stringify({ cache, lastAttemptAt }, null, 2));
+    await writeFile(cacheFile, JSON.stringify({ cache, lastAttemptAt, throttledCount }, null, 2));
   } catch (error) {
     console.error('usage-cache.json konnte nicht geschrieben werden:', error.message);
   }
@@ -99,7 +112,7 @@ export async function getUsage() {
     return { ...cache, stale: false };
   }
 
-  if (Date.now() - lastAttemptAt < MIN_INTERVAL_MS) {
+  if (Date.now() - lastAttemptAt < waitMs()) {
     return degraded(lastError ?? 'Abfrage in Sperrzeit');
   }
   lastAttemptAt = Date.now();
@@ -127,7 +140,13 @@ export async function getUsage() {
     return degraded(`Endpunkt nicht erreichbar: ${reason}`);
   }
 
-  if (response.status === 429) return degraded(await throttled(response));
+  if (response.status === 429) {
+    throttledCount += 1;
+    persist();
+    const next = Math.round(waitMs() / 60_000);
+    return degraded(`${await throttled(response)} — nächster Versuch in ${next} min`);
+  }
+  throttledCount = 0;
   // Den Token nicht selbst erneuern: Claude Code haelt ihn frisch, ein zweiter Erneuerer
   // stritte sich mit ihm um denselben Refresh-Token.
   if (response.status === 401) return degraded('Anmeldung abgelaufen (401) — der nächste Claude-Code-Start erneuert sie');
