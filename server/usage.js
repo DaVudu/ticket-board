@@ -11,9 +11,9 @@ const MIN_INTERVAL_MS = 120_000;
 
 // Nach einem 429 nicht im 2-Minuten-Takt nachfassen: jedes Nachfassen scheint die Sperre zu
 // verlaengern. Wartezeit 5 min nach dem ersten 429, je weiterem 429 um 5 min laenger, hoechstens
-// 60 min. Der naechste Erfolg setzt sie zurueck.
+// 15 min (die Sperre lief zuletzt nach wenigen Minuten ab). Der naechste Erfolg setzt sie zurueck.
 const BACKOFF_STEP_MS = 5 * 60_000;
-const BACKOFF_MAX_MS = 60 * 60_000;
+const BACKOFF_MAX_MS = 15 * 60_000;
 
 const LABELS = {
   session: '5-Stunden-Limit',
