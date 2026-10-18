@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,12 +62,65 @@ async function persist() {
 // eine gehaltene Kopie waere irgendwann abgelaufen. Einen eigenen Token aus `claude setup-token`
 // weist der Endpunkt mit 403 ab — der Anmeldespeicher ist die einzige Quelle, die traegt.
 // Der Wert darf nirgends protokolliert oder an den Browser gegeben werden.
-async function readToken() {
+async function readCredentials() {
   const dir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
   const raw = await readFile(path.join(dir, '.credentials.json'), 'utf8');
-  const token = JSON.parse(raw)?.claudeAiOauth?.accessToken;
-  if (!token) throw new Error('accessToken fehlt in .credentials.json');
-  return token;
+  const oauth = JSON.parse(raw)?.claudeAiOauth;
+  if (!oauth?.accessToken) throw new Error('accessToken fehlt in .credentials.json');
+  return { token: oauth.accessToken, expiresAt: oauth.expiresAt ?? 0 };
+}
+
+// Der Token auf dem Pi wird nur erneuert, wenn hier etwas Claude nutzt (Hermes). Arbeit am PC
+// laeuft ueber eine eigene Anmeldung — ohne Hermes-Nutzung war der Token schon tagelang
+// abgelaufen. Abgelaufen = weniger als 60 s Rest (wie Hermes), erneuert wird ab 5 min Rest.
+const EXPIRED_MARGIN_MS = 60_000;
+const RENEW_MARGIN_MS = 5 * 60_000;
+const RENEW_MIN_INTERVAL_MS = 30_000;
+const RENEW_TIMEOUT_MS = 60_000;
+
+function isExpired(expiresAt, margin = EXPIRED_MARGIN_MS) {
+  return Boolean(expiresAt) && Date.now() > expiresAt - margin;
+}
+
+function clock(ms) {
+  return new Date(ms).toLocaleString('de-DE', {
+    timeZone: 'Europe/Berlin',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+// Nicht selbst erneuern: Refresh-Tokens gelten genau einmal. Hermes erneuert unter einer
+// prozessuebergreifenden Sperre auf .credentials.json und liest die Datei vorher neu ein —
+// eine eigene Erneuerung hier stritte sich mit Hermes um denselben Refresh-Token. Deshalb
+// erledigt das die oeffentliche Hermes-CLI (`hermes auth refresh anthropic`).
+let renewing = null;
+let lastRenewAt = 0;
+
+function runRenew() {
+  const bin = process.env.HERMES_BIN || path.join(os.homedir(), '.local', 'bin', 'hermes');
+  return new Promise((resolve, reject) => {
+    execFile(bin, ['auth', 'refresh', 'anthropic'], { timeout: RENEW_TIMEOUT_MS }, (error, _stdout, stderr) => {
+      if (!error) return resolve();
+      // Nur die letzte Zeile, gekuerzt: die CLI gibt keine Tokens aus, aber sicher ist sicher.
+      const last = String(stderr || error.message).trim().split('\n').pop() ?? '';
+      reject(new Error(last.replace(/sk-ant-[\w-]+/g, '***').slice(0, 200) || 'unbekannter Fehler'));
+    });
+  });
+}
+
+async function renewToken() {
+  if (renewing) return renewing;
+  if (Date.now() - lastRenewAt < RENEW_MIN_INTERVAL_MS) {
+    throw new Error('Erneuerung eben erst versucht — bitte kurz warten');
+  }
+  lastRenewAt = Date.now();
+  renewing = runRenew().finally(() => {
+    renewing = null;
+  });
+  return renewing;
 }
 
 function shape(payload) {
@@ -107,23 +161,46 @@ function degraded(message) {
   throw new Error(message);
 }
 
-export async function getUsage() {
+// `renew`: nur beim Knopf „Aktualisieren“ — ein abgelaufener Token wird dann ueber Hermes
+// erneuert. Seitenaufrufe und der Minutentakt erneuern nie.
+export async function getUsage({ renew = false } = {}) {
   if (cache && Date.now() - new Date(cache.validAt).getTime() < MIN_INTERVAL_MS) {
     return { ...cache, stale: false };
   }
 
-  if (Date.now() - lastAttemptAt < waitMs()) {
+  // Ablauf lokal pruefen, bevor Anthropic gefragt wird: ein abgelaufener Token kostet sonst
+  // nur einen Fehlversuch und eine Sperrzeit.
+  let creds;
+  try {
+    creds = await readCredentials();
+  } catch (error) {
+    return degraded(`Anmeldung nicht lesbar: ${error.message}`);
+  }
+
+  let renewed = false;
+  if (renew && isExpired(creds.expiresAt, RENEW_MARGIN_MS)) {
+    try {
+      await renewToken();
+      creds = await readCredentials();
+      renewed = !isExpired(creds.expiresAt);
+    } catch (error) {
+      return degraded(`Token-Erneuerung fehlgeschlagen: ${error.message}`);
+    }
+    if (!renewed) return degraded('Token-Erneuerung lief durch, der Token ist aber weiter abgelaufen');
+  }
+
+  if (isExpired(creds.expiresAt)) {
+    return degraded(`Token abgelaufen seit ${clock(creds.expiresAt)} — „Aktualisieren“ erneuert ihn`);
+  }
+
+  // Nach frischer Erneuerung sofort fragen; die Sperrzeit nach einem 429 gilt trotzdem.
+  if (!(renewed && throttledCount === 0) && Date.now() - lastAttemptAt < waitMs()) {
     return degraded(lastError ?? 'Abfrage in Sperrzeit');
   }
   lastAttemptAt = Date.now();
   persist();
 
-  let token;
-  try {
-    token = await readToken();
-  } catch (error) {
-    return degraded(`Anmeldung nicht lesbar: ${error.message}`);
-  }
+  const { token } = creds;
 
   let response;
   try {
@@ -147,9 +224,8 @@ export async function getUsage() {
     return degraded(`${await throttled(response)} — nächster Versuch in ${next} min`);
   }
   throttledCount = 0;
-  // Den Token nicht selbst erneuern: Claude Code haelt ihn frisch, ein zweiter Erneuerer
-  // stritte sich mit ihm um denselben Refresh-Token.
-  if (response.status === 401) return degraded('Anmeldung abgelaufen (401) — der nächste Claude-Code-Start erneuert sie');
+  // Den Token nicht selbst erneuern (siehe renewToken): das macht Hermes auf Knopfdruck.
+  if (response.status === 401) return degraded('Anmeldung abgelaufen (401) — „Aktualisieren“ erneuert sie');
   if (response.status === 403) return degraded('Anmeldung ohne Berechtigung für diesen Endpunkt (403)');
   if (!response.ok) return degraded(`Endpunkt antwortete mit HTTP ${response.status}`);
 

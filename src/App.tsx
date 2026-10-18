@@ -42,8 +42,10 @@ export default function App() {
     setTicketError(result.error);
   }, []);
 
-  const refresh = useCallback(async () => {
-    const [, usageResult] = await Promise.all([loadTickets(), request<UsageSnapshot>('/api/usage')]);
+  // `renew` nur ueber den Knopf: dann darf der Server einen abgelaufenen Token erneuern.
+  const refresh = useCallback(async (renew = false) => {
+    const usageUrl = renew ? '/api/usage?renew=1' : '/api/usage';
+    const [, usageResult] = await Promise.all([loadTickets(), request<UsageSnapshot>(usageUrl)]);
     if (usageResult.data) setUsage(usageResult.data);
     setUsageError(usageResult.error);
   }, [loadTickets]);
@@ -133,7 +135,7 @@ export default function App() {
           <button type="button" className="primary" onClick={() => setDialog(null)} disabled={!config}>
             Neues Ticket
           </button>
-          <button type="button" onClick={refresh}>
+          <button type="button" onClick={() => refresh(true)}>
             Aktualisieren
           </button>
         </div>

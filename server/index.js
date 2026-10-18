@@ -74,9 +74,9 @@ app.delete('/api/comments/:id', handle((req) => store.deleteComment(req.params.i
 app.post('/api/tickets/:key/links', handle((req, res) => created(res, store.addLink(req.params.key, req.body))));
 app.delete('/api/links/:id', handle((req) => store.deleteLink(req.params.id)));
 
-app.get('/api/usage', async (_req, res) => {
+app.get('/api/usage', async (req, res) => {
   try {
-    res.json(await getUsage());
+    res.json(await getUsage({ renew: req.query.renew === '1' }));
   } catch (error) {
     res.status(503).json({ error: 'usage_unavailable', message: error.message });
   }
