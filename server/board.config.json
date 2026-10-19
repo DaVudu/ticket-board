@@ -13,6 +13,7 @@
   "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
   "defaultType": "Task",
   "defaultPriority": "Medium",
+  "hideDoneAfterDays": 2,
   "assignees": ["Viktor", "implementer", "game-designer", "tester", "artist"],
   "linkTypes": [
     { "id": "blocks", "outward": "blockiert", "inward": "wird blockiert von" },

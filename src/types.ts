@@ -10,6 +10,8 @@ export type BoardConfig = {
   defaultPriority: string;
   assignees: string[];
   linkTypes: { id: string; outward: string; inward: string }[];
+  // Erledigte Tickets verschwinden nach so vielen Kalendertagen aus der Spalte (fehlt = nie).
+  hideDoneAfterDays?: number;
 };
 
 export type Ticket = {
@@ -28,6 +30,8 @@ export type Ticket = {
   commentCount: number;
   createdAt: string;
   updatedAt: string;
+  // Seit wann das Ticket in einem Status der Kategorie done steht; sonst null.
+  doneAt: string | null;
 };
 
 export type Comment = {

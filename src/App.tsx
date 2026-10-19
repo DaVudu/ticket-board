@@ -5,7 +5,7 @@ import Backlog from './components/Backlog';
 import TicketDialog from './components/TicketDialog';
 import { matches } from './components/Labels';
 import { api, request } from './api';
-import { relativeFromNow } from './format';
+import { calendarDaysBetween, relativeFromNow } from './format';
 import type { BoardConfig, Ticket, TicketList, UsageSnapshot } from './types';
 
 const REFRESH_MS = 60_000;
@@ -31,6 +31,8 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [view, setView] = useState<View>('board');
   const [query, setQuery] = useState('');
+  // Absichtlich nicht gespeichert: nach dem Neuladen sind alte erledigte Tickets wieder weg.
+  const [showAllDone, setShowAllDone] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(keyFromHash);
 
   const loadTickets = useCallback(async () => {
@@ -102,15 +104,36 @@ export default function App() {
   // Die Karte wandert sofort; der anschließende Abruf holt bei einem Fehler den echten Stand zurück.
   const moveOnBoard = useCallback(
     (key: string, drop: Drop) => {
-      setTickets((current) => current.map((t) => (t.key === key ? { ...t, status: drop.status } : t)));
+      const category = config?.statuses.find((s) => s.name === drop.status)?.category;
+      setTickets((current) =>
+        current.map((t) => {
+          if (t.key !== key) return t;
+          const done = category === 'done';
+          // Wie der Server: innerhalb von done bleibt das Datum, nach done beginnt es neu.
+          const doneAt = done ? (t.statusCategory === 'done' && t.doneAt ? t.doneAt : new Date().toISOString()) : null;
+          return { ...t, status: drop.status, statusCategory: category ?? t.statusCategory, doneAt };
+        }),
+      );
       move(key, { status: drop.status, beforeKey: drop.beforeKey });
     },
-    [move],
+    [move, config],
   );
 
   const visible = useMemo(() => tickets.filter((t) => matches(t, query)), [tickets, query]);
-  const onBoard = visible.filter((t) => !t.backlog);
+  const allOnBoard = visible.filter((t) => !t.backlog);
   const inBacklog = visible.filter((t) => t.backlog);
+
+  // Erledigte Tickets, deren done_at mehr als hideDoneAfterDays Kalendertage zurueckliegt, fehlen
+  // in der Spalte. Eine Suche zeigt sie trotzdem, damit sie auffindbar bleiben.
+  const hideAfter = config?.hideDoneAfterDays;
+  const isOld = (t: Ticket) =>
+    hideAfter !== undefined && t.statusCategory === 'done' && t.doneAt !== null && calendarDaysBetween(t.doneAt) > hideAfter;
+  const hideOld = !showAllDone && !query.trim();
+  const oldByStatus: Record<string, number> = {};
+  if (!query.trim()) {
+    for (const t of allOnBoard) if (isOld(t)) oldByStatus[t.status] = (oldByStatus[t.status] ?? 0) + 1;
+  }
+  const onBoard = hideOld ? allOnBoard.filter((t) => !isOld(t)) : allOnBoard;
 
   // Tickets mit einem Status, den board.config.json nicht (mehr) kennt, haetten keine Spalte.
   const orphaned = config
@@ -165,7 +188,15 @@ export default function App() {
 
         {config &&
           (view === 'board' ? (
-            <TicketBoard config={config} tickets={onBoard} onOpen={openTicket} onMove={moveOnBoard} />
+            <TicketBoard
+              config={config}
+              tickets={onBoard}
+              oldByStatus={oldByStatus}
+              showingOld={!hideOld}
+              onToggleOld={() => setShowAllDone((v) => !v)}
+              onOpen={openTicket}
+              onMove={moveOnBoard}
+            />
           ) : (
             <Backlog
               tickets={inBacklog}

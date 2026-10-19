@@ -12,6 +12,10 @@ export type Drop = { status: string; beforeKey: string | null };
 type Props = {
   config: BoardConfig;
   tickets: Ticket[];
+  // Je Status: wie viele alte erledigte Tickets ausgeblendet sind bzw. waeren.
+  oldByStatus: Record<string, number>;
+  showingOld: boolean;
+  onToggleOld: () => void;
   onOpen: (key: string) => void;
   onMove: (key: string, drop: Drop) => void;
 };
@@ -69,7 +73,7 @@ function TicketCard({ ticket, dragging, insertBefore, onOpen, onDragStart, onDra
   );
 }
 
-export default function TicketBoard({ config, tickets, onOpen, onMove }: Props) {
+export default function TicketBoard({ config, tickets, oldByStatus, showingOld, onToggleOld, onOpen, onMove }: Props) {
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
 
@@ -84,6 +88,7 @@ export default function TicketBoard({ config, tickets, onOpen, onMove }: Props) 
       {config.statuses.map((status) => {
         const items = tickets.filter((t) => t.status === status.name);
         const isTarget = drop?.status === status.name;
+        const old = oldByStatus[status.name] ?? 0;
 
         return (
           <section
@@ -113,6 +118,16 @@ export default function TicketBoard({ config, tickets, onOpen, onMove }: Props) 
               <h3 title={status.name}>{status.name}</h3>
               <span className="count">{items.length}</span>
             </header>
+            {old > 0 && (
+              <button
+                type="button"
+                className="link-button old-toggle"
+                onClick={onToggleOld}
+                title={showingOld ? 'Ältere erledigte Tickets wieder ausblenden' : 'Ältere erledigte Tickets einblenden'}
+              >
+                {showingOld ? `${old} ältere ausblenden` : `+${old} ausgeblendet`}
+              </button>
+            )}
 
             <ul className="cards">
               {items.map((ticket) => (

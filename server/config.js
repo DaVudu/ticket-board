@@ -31,6 +31,11 @@ export function loadConfig() {
   });
   if (!config.types.includes(config.defaultType)) fail('defaultType steht nicht in types');
   if (!config.priorities.includes(config.defaultPriority)) fail('defaultPriority steht nicht in priorities');
+  // Optional: Erledigte Tickets (Kategorie done) verschwinden nach so vielen Kalendertagen aus
+  // der Board-Spalte. Fehlt der Wert, wird nichts ausgeblendet.
+  if (config.hideDoneAfterDays !== undefined && !(Number.isInteger(config.hideDoneAfterDays) && config.hideDoneAfterDays >= 0)) {
+    fail('hideDoneAfterDays muss eine ganze Zahl ab 0 sein');
+  }
 
   return config;
 }

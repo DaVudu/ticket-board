@@ -20,6 +20,15 @@ export function relativeFromNow(iso: string): string {
   return diffMs >= 0 ? `in ${value}` : `vor ${value}`;
 }
 
+// Kalendertage zwischen zwei Zeitpunkten in Ortszeit (erledigt Montag, heute Donnerstag = 3).
+export function calendarDaysBetween(fromIso: string, to: Date = new Date()): number {
+  const from = new Date(fromIso);
+  const startFrom = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const startTo = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  // Runden gleicht Sommer-/Winterzeit aus (23 oder 25 Stunden am Umstellungstag).
+  return Math.round((startTo.getTime() - startFrom.getTime()) / 86_400_000);
+}
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', {
     day: '2-digit',

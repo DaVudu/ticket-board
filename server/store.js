@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS tickets (
   backlog     INTEGER NOT NULL DEFAULT 0,
   rank        REAL    NOT NULL,
   created_at  TEXT    NOT NULL,
-  updated_at  TEXT    NOT NULL
+  updated_at  TEXT    NOT NULL,
+  -- Seit wann das Ticket in einem Status der Kategorie done steht; sonst NULL.
+  done_at     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -79,6 +81,9 @@ export function openStore(file, config) {
   const doneStatuses = config.statuses.filter((s) => s.category === 'done').map((s) => s.name);
   const linkTypes = new Map(config.linkTypes.map((l) => [l.id, l]));
   const keyPattern = new RegExp(`^${config.projectKey}-(\\d+)$`);
+  const isDone = (status) => categoryOf.get(status) === 'done';
+
+  migrateDoneAt();
 
   const toKey = (number) => `${config.projectKey}-${number}`;
 
@@ -105,6 +110,30 @@ export function openStore(file, config) {
     const row = db.prepare('SELECT * FROM tickets WHERE number = ?').get(number);
     if (!row) throw new StoreError(404, `Ticket ${toKey(number)} gibt es nicht.`);
     return row;
+  }
+
+  // done_at kam nach den ersten Datenbanken dazu. Fehlt die Spalte, wird sie angelegt. Danach
+  // gilt bei jedem Start: Erledigte Tickets ohne Datum bekommen updated_at (Altbestand, Import),
+  // offene Tickets haben kein Datum (etwa nach Aenderung der Statuskategorien in der Config).
+  function migrateDoneAt() {
+    const columns = db.prepare('PRAGMA table_info(tickets)').all().map((c) => c.name);
+    if (!columns.includes('done_at')) db.exec('ALTER TABLE tickets ADD COLUMN done_at TEXT');
+    const placeholders = doneStatuses.map(() => '?').join(',');
+    if (placeholders) {
+      db.prepare(`UPDATE tickets SET done_at = updated_at WHERE done_at IS NULL AND status IN (${placeholders})`)
+        .run(...doneStatuses);
+      db.prepare(`UPDATE tickets SET done_at = NULL WHERE done_at IS NOT NULL AND status NOT IN (${placeholders})`)
+        .run(...doneStatuses);
+    } else {
+      db.exec('UPDATE tickets SET done_at = NULL');
+    }
+  }
+
+  // Neues done_at nach einem Statuswechsel: Wechsel innerhalb von done (Done -> Cancelled)
+  // behaelt das Datum, Wechsel nach done setzt es neu, Wechsel heraus loescht es.
+  function nextDoneAt(row, status, stamp) {
+    if (!isDone(status)) return null;
+    return isDone(row.status) && row.done_at ? row.done_at : stamp;
   }
 
   function nextNumber() {
@@ -214,6 +243,7 @@ export function openStore(file, config) {
       commentCount,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      doneAt: row.done_at ?? null,
     };
   }
 
@@ -309,17 +339,18 @@ export function openStore(file, config) {
     const fields = cleanFields(input);
     if (fields.title === undefined) throw invalid('Titel fehlt.');
 
+    const status = fields.status ?? statusNames[0];
     return transaction(() => {
       const number = nextNumber();
       const stamp = now();
       db.prepare(
-        `INSERT INTO tickets (number, title, description, status, type, priority, assignee, labels, backlog, rank, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tickets (number, title, description, status, type, priority, assignee, labels, backlog, rank, created_at, updated_at, done_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         number,
         fields.title,
         fields.description ?? '',
-        fields.status ?? statusNames[0],
+        status,
         fields.type ?? config.defaultType,
         fields.priority ?? config.defaultPriority,
         fields.assignee ?? null,
@@ -328,6 +359,7 @@ export function openStore(file, config) {
         maxRank() + 1,
         stamp,
         stamp,
+        isDone(status) ? stamp : null,
       );
       return getTicket(toKey(number));
     });
@@ -337,11 +369,14 @@ export function openStore(file, config) {
     const fields = cleanFields(input);
     return transaction(() => {
       const row = rowByKey(key);
-      const names = Object.keys(fields);
+      const stamp = now();
+      const values = { ...fields };
+      if (fields.status !== undefined) values.done_at = nextDoneAt(row, fields.status, stamp);
+      const names = Object.keys(values);
       if (names.length) {
         const assignments = names.map((n) => `${n} = ?`).join(', ');
         db.prepare(`UPDATE tickets SET ${assignments}, updated_at = ? WHERE id = ?`)
-          .run(...names.map((n) => fields[n]), now(), row.id);
+          .run(...names.map((n) => values[n]), stamp, row.id);
       }
       return getTicket(toKey(row.number));
     });
@@ -389,8 +424,9 @@ export function openStore(file, config) {
         rank = prev === null ? beforeRank - 1 : (prev + beforeRank) / 2;
       }
 
-      db.prepare('UPDATE tickets SET status = ?, backlog = ?, rank = ?, updated_at = ? WHERE id = ?')
-        .run(target.status, target.backlog, rank, now(), row.id);
+      const stamp = now();
+      db.prepare('UPDATE tickets SET status = ?, backlog = ?, rank = ?, updated_at = ?, done_at = ? WHERE id = ?')
+        .run(target.status, target.backlog, rank, stamp, nextDoneAt(row, target.status, stamp), row.id);
       return getTicket(toKey(row.number));
     });
   }

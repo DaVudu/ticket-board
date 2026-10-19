@@ -180,6 +180,7 @@ export default function TicketDialog({ config, ticketKey, tickets, defaultBacklo
           {detail && (
             <span className="stamp">
               Erstellt {formatDateTime(detail.createdAt)} · geändert {relativeFromNow(detail.updatedAt)}
+              {detail.doneAt && ` · erledigt am ${formatDateTime(detail.doneAt)}`}
             </span>
           )}
           <button type="button" className="icon-button" onClick={close} title="Schließen (Esc)">
